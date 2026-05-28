@@ -1,287 +1,290 @@
 # Setup Guide
 
-Complete setup instructions for Neuroflix Video Player on Windows.
+Complete setup instructions for Neuroflix on Windows.
+
+---
 
 ## Prerequisites
 
-### Required Software
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| Windows | 10 / 11 | Video processor uses a Windows FFmpeg binary |
+| Node.js | 18+ | https://nodejs.org/ — includes npm |
+| Docker Desktop | latest | https://docker.com — runs PostgreSQL + Redis locally |
+| Cloudflare account | — | https://cloudflare.com — free R2 storage (10 GB) |
 
-1. **Node.js 18+**
-   - Download: https://nodejs.org/
-   - Verify: `node --version`
+> **Why Docker?**
+> PostgreSQL and Redis are provided via `docker-compose.yml`. You do not need to install either separately — Docker handles them.
 
-2. **npm 9+**
-   - Included with Node.js
-   - Verify: `npm --version`
+---
 
-3. **Git**
-   - Download: https://git-scm.com/
-   - Verify: `git --version`
-
-4. **PostgreSQL** (or Supabase account)
-   - Option A: Local PostgreSQL 15+
-   - Option B: Supabase (recommended, free tier)
-     - Sign up: https://supabase.com/
-
-5. **Redis** (or Upstash account)
-   - Option A: Local Redis
-   - Option B: Upstash (recommended, free tier)
-     - Sign up: https://upstash.com/
-
-6. **Cloudflare R2 Account**
-   - Sign up: https://cloudflare.com/
-   - Create R2 bucket
-   - Generate API keys
-
-## Automated Setup (Recommended)
-
-### Step 1: Clone Repository
+## Step 1 — Clone the Repository
 
 ```bash
 git clone https://github.com/your-org/neuroflix.git
 cd neuroflix
 ```
 
-### Step 2: Run Setup Script
+---
+
+## Step 2 — Run the Setup Script
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1
 ```
 
-This script will:
-- ✅ Check Node.js version
-- ✅ Install all dependencies (frontend, backend, video-processor)
-- ✅ Generate Prisma Client
-- ✅ Download FFmpeg (Windows binary)
-- ✅ Create .env files from templates
+The script will:
+- Check Node.js version (18+ required)
+- Install npm dependencies for all three packages (frontend, backend, video-processor)
+- Generate the Prisma client
+- Download the FFmpeg Windows binary to `video-processor/ffmpeg/bin/`
+- Copy each `.env.example` to `.env` (if `.env` does not already exist)
 
-### Step 3: Configure Environment Variables
+---
 
-#### Frontend (.env)
+## Step 3 — Set Up Cloudflare R2
+
+R2 is the only external cloud service required. Everything else (database, Redis) runs locally via Docker.
+
+1. Log in to https://dash.cloudflare.com/
+2. Go to **R2 Object Storage** in the left sidebar
+3. Click **Create bucket** — give it any name (e.g. `neuroflix-videos`)
+4. Go to **R2 → Manage R2 API Tokens**
+5. Click **Create API Token**
+   - Permissions: **Object Read & Write**
+   - Scope: the bucket you just created
+6. Copy and save:
+   - **Account ID** (shown on the R2 overview page)
+   - **Access Key ID**
+   - **Secret Access Key**
+   - **Bucket name**
+
+> **Public access**: you do NOT need to enable public bucket access. The backend proxies all HLS requests — the browser never talks to R2 directly.
+
+---
+
+## Step 4 — Configure Environment Variables
+
+### Backend (`backend/.env`)
+
+```env
+NODE_ENV=development
+PORT=3001
+
+# PostgreSQL — matches docker-compose.yml defaults
+DATABASE_URL=postgresql://neuroflix:neuroflix_dev@localhost:5432/neuroflix
+
+# JWT — change this to any long random string in production
+JWT_SECRET=change-this-to-a-long-random-string-min-32-chars
+JWT_EXPIRES_IN=24h
+
+# Cloudflare R2 — from Step 3
+R2_ACCOUNT_ID=your-cloudflare-account-id
+R2_ACCESS_KEY_ID=your-r2-access-key-id
+R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
+R2_BUCKET_NAME=neuroflix-videos
+
+# Redis — matches docker-compose.yml
+REDIS_URL=redis://localhost:6379
+
+# Frontend origin for CORS
+FRONTEND_URL=http://localhost:5173
+```
+
+### Video Processor (`video-processor/.env`)
+
+```env
+NODE_ENV=development
+
+# Redis — matches docker-compose.yml
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+
+# Cloudflare R2 — same credentials as backend
+R2_ACCOUNT_ID=your-cloudflare-account-id
+R2_ACCESS_KEY_ID=your-r2-access-key-id
+R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
+R2_BUCKET_NAME=neuroflix-videos
+
+# Internal communication with backend
+BACKEND_API_URL=http://localhost:3001/api/v1
+VIDEO_PROCESSOR_API_KEY=any-random-secret-string
+```
+
+### Frontend (`frontend/.env`)
+
 ```env
 VITE_API_URL=http://localhost:3001/api/v1
 ```
 
-#### Backend (.env)
-```env
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/neuroflix
+---
 
-# JWT
-JWT_SECRET=your-super-secret-key-min-32-characters
-JWT_EXPIRES_IN=24h
-
-# Cloudflare R2
-R2_ACCOUNT_ID=your-account-id
-R2_ACCESS_KEY_ID=your-access-key
-R2_SECRET_ACCESS_KEY=your-secret-key
-R2_BUCKET_NAME=neuroflix-videos
-
-# Redis
-REDIS_URL=redis://localhost:6379
-
-# Frontend URL
-FRONTEND_URL=http://localhost:5173
-```
-
-#### Video Processor (.env)
-```env
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
-
-# R2 (same as backend)
-R2_ACCOUNT_ID=your-account-id
-R2_ACCESS_KEY_ID=your-access-key
-R2_SECRET_ACCESS_KEY=your-secret-key
-R2_BUCKET_NAME=neuroflix-videos
-
-# Backend API
-BACKEND_API_URL=http://localhost:3001/api/v1
-VIDEO_PROCESSOR_API_KEY=your-internal-api-key
-```
-
-### Step 4: Setup Database
+## Step 5 — Start Docker (PostgreSQL + Redis)
 
 ```bash
-cd backend
-
-# Run migrations
-npm run db:migrate
-
-# Seed database (optional)
-npm run db:seed
+docker compose up -d
 ```
 
-### Step 5: Verify Setup
+This starts two containers in the background:
+- `neuroflix-postgres` — PostgreSQL 15 on port 5432
+- `neuroflix-redis` — Redis 7 on port 6379
+
+Verify they are healthy:
 
 ```bash
-cd ..
-npm run test:setup
+docker compose ps
 ```
 
-You should see all checks pass.
+Both services should show `healthy` in the Status column.
 
-## Manual Setup
+---
 
-If you prefer manual setup:
-
-### 1. Install Dependencies
-
-```bash
-# Frontend
-cd frontend
-npm install
-
-# Backend
-cd ../backend
-npm install
-npx prisma generate
-
-# Video Processor
-cd ../video-processor
-npm install
-
-cd ..
-```
-
-### 2. Download FFmpeg
-
-```bash
-node scripts/download-ffmpeg.js
-```
-
-### 3. Create .env files
-
-Copy `.env.example` to `.env` in each directory and configure.
-
-### 4. Setup Database
+## Step 6 — Run Database Migrations
 
 ```bash
 cd backend
 npm run db:migrate
-npm run db:seed
 ```
 
-## Service-Specific Setup
+This creates all database tables (User, Video, VideoProgress, CheckpointAnswer) in the local PostgreSQL container.
 
-### Supabase (PostgreSQL)
+To view the database in a browser UI:
 
-1. Create account at https://supabase.com/
-2. Create new project
-3. Copy connection string from Settings → Database
-4. Add to `backend/.env`:
-   ```env
-   DATABASE_URL=postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres
-   ```
+```bash
+npm run db:studio
+# Opens at http://localhost:5555
+```
 
-### Upstash (Redis)
+---
 
-1. Create account at https://upstash.com/
-2. Create new Redis database
-3. Copy connection details
-4. Add to `.env` files:
-   ```env
-   REDIS_URL=redis://default:[PASSWORD]@[HOST]:6379
-   ```
+## Step 7 — Start the Services
 
-### Cloudflare R2
+Open **three** separate terminals from the project root:
 
-1. Create Cloudflare account
-2. Go to R2 Object Storage
-3. Create bucket: `neuroflix-videos`
-4. Generate R2 API tokens
-5. Add to `.env` files
-
-## Running the Application
-
-### Development Mode
-
-Open 3 terminals:
-
-**Terminal 1: Frontend**
+**Terminal 1 — Frontend**
 ```bash
 cd frontend
 npm run dev
+# Vite dev server → http://localhost:5173
 ```
-Opens at http://localhost:5173
 
-**Terminal 2: Backend**
+**Terminal 2 — Backend API**
 ```bash
 cd backend
 npm run dev
+# Express API → http://localhost:3001
+# Health check → http://localhost:3001/api/v1/health
 ```
-Runs at http://localhost:3001
 
-**Terminal 3: Video Processor**
+**Terminal 3 — Video Processor**
 ```bash
 cd video-processor
 npm run worker
+# BullMQ worker — listens for transcoding jobs on Redis
 ```
-Processes video jobs from queue
 
-### Production Mode
+---
+
+## Step 8 — Verify Setup
 
 ```bash
-# Build all
-npm run build:all
-
-# Start backend
-cd backend
-npm start
-
-# Start frontend (use Vercel for production)
-cd frontend
-npm run preview
+# From the project root:
+npm run test:setup
 ```
+
+You should see all checks pass. Then open http://localhost:5173, register an account, and try uploading a video.
+
+---
+
+## Adding Checkpoint Questions
+
+Checkpoint questions are stored in `backend/src/config/checkpoints.json`. This file maps video IDs to arrays of questions with timestamps.
+
+```json
+[
+  {
+    "videoId": "your-video-uuid-from-the-database",
+    "checkpoints": [
+      {
+        "id": "cp-001",
+        "timestamp": 30,
+        "question": "What did the speaker just describe?",
+        "options": ["Option A", "Option B", "Option C", "Option D"],
+        "correctAnswer": 0,
+        "explanation": "The speaker described Option A because..."
+      }
+    ]
+  }
+]
+```
+
+After editing the file, restart the backend for changes to take effect.
+
+---
 
 ## Troubleshooting
 
-### FFmpeg Not Found
+### Docker containers not starting
 
 ```bash
-# Re-download FFmpeg
-node scripts/download-ffmpeg.js
-
-# Verify installation
-cd video-processor/ffmpeg/bin
-./ffmpeg.exe -version
+# Check Docker Desktop is running, then:
+docker compose down
+docker compose up -d
+docker compose logs postgres
+docker compose logs redis
 ```
 
-### Database Connection Failed
-
-- Check DATABASE_URL format
-- Verify PostgreSQL is running
-- Check firewall settings
-- Test connection: `npx prisma db push`
-
-### Redis Connection Failed
-
-- Check Redis is running: `redis-cli ping`
-- Verify REDIS_URL format
-- Check port 6379 is not blocked
-
-### Port Already in Use
+### FFmpeg not found
 
 ```bash
-# Find process using port
+# Re-run the FFmpeg downloader:
+node scripts/download-ffmpeg.js
+
+# Verify:
+video-processor\ffmpeg\bin\ffmpeg.exe -version
+```
+
+### Database connection failed
+
+- Confirm Docker is running: `docker compose ps`
+- The `DATABASE_URL` in `backend/.env` must match the docker-compose credentials:
+  `postgresql://neuroflix:neuroflix_dev@localhost:5432/neuroflix`
+- Try: `cd backend && npx prisma db push`
+
+### Redis connection failed
+
+- Confirm the Redis container is healthy: `docker compose ps`
+- Confirm `REDIS_HOST=localhost` and `REDIS_PORT=6379` in `video-processor/.env`
+- Test: `docker exec neuroflix-redis redis-cli ping` — should return `PONG`
+
+### Port already in use
+
+```powershell
+# Find what's using the port (e.g. 3001):
 netstat -ano | findstr :3001
 
-# Kill process
+# Kill it:
 taskkill /PID <PID> /F
 ```
 
-### Prisma Generate Failed
+### Prisma client out of date
 
 ```bash
 cd backend
-rm -rf node_modules
-npm install
-npx prisma generate
+npm run db:generate
 ```
 
-## Next Steps
+---
 
-- [API Documentation](./API.md)
-- [Deployment Guide](./DEPLOYMENT.md)
-- [Architecture Overview](./ARCHITECTURE.md)
+## Stopping the Stack
+
+```bash
+# Stop Node.js processes: Ctrl+C in each terminal
+
+# Stop Docker containers (keeps data):
+docker compose stop
+
+# Stop and remove containers + volumes (clean slate):
+docker compose down -v
+```

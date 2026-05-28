@@ -169,20 +169,18 @@ Write-Host "  Setup Complete! 🎉" -ForegroundColor Green
 Write-Host "================================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next Steps:" -ForegroundColor Cyan
-Write-Host "1. Configure environment variables:" -ForegroundColor White
-Write-Host "   - backend/.env (Database, JWT, R2)" -ForegroundColor Gray
-Write-Host "   - video-processor/.env (Redis, R2)" -ForegroundColor Gray
+Write-Host "1. Start Docker (PostgreSQL + Redis):" -ForegroundColor White
+Write-Host "   docker compose up -d" -ForegroundColor Gray
 Write-Host ""
-Write-Host "2. Setup PostgreSQL database (Supabase recommended)" -ForegroundColor White
+Write-Host "2. Configure Cloudflare R2 credentials in backend/.env and video-processor/.env" -ForegroundColor White
 Write-Host ""
 Write-Host "3. Run database migrations:" -ForegroundColor White
-Write-Host "   cd backend" -ForegroundColor Gray
-Write-Host "   npm run db:migrate" -ForegroundColor Gray
+Write-Host "   cd backend && npm run db:migrate" -ForegroundColor Gray
 Write-Host ""
-Write-Host "4. Start development servers:" -ForegroundColor White
+Write-Host "4. Start development servers (3 terminals):" -ForegroundColor White
 Write-Host "   Frontend:  cd frontend && npm run dev" -ForegroundColor Gray
 Write-Host "   Backend:   cd backend && npm run dev" -ForegroundColor Gray
 Write-Host "   Worker:    cd video-processor && npm run worker" -ForegroundColor Gray
 Write-Host ""
-Write-Host "For more information, see README.md" -ForegroundColor Cyan
+Write-Host "For full instructions, see docs/SETUP.md" -ForegroundColor Cyan
 Write-Host ""

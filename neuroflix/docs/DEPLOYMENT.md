@@ -1,377 +1,291 @@
 # Deployment Guide
 
-Production deployment instructions for Neuroflix Video Player.
+How to deploy Neuroflix to production.
 
-## Deployment Architecture
+---
+
+## Architecture Overview
 
 ```
-Frontend (Vercel) → Backend (Render.com) → PostgreSQL (Supabase)
-                                         → Redis (Upstash)
-                                         → R2 (Cloudflare)
+Frontend  →  Vercel (static hosting, free)
+Backend   →  Any Node.js host (Render, Railway, Fly.io, VPS)
+Database  →  Supabase PostgreSQL (free 500 MB) or any PostgreSQL
+Redis     →  Any managed Redis (Upstash free, Redis Cloud, or self-hosted)
+Storage   →  Cloudflare R2 (free 10 GB + zero egress)
+Worker    →  Same host as backend, or a separate background worker
 ```
 
-## Prerequisites
+> **Important — Video Processor**: The video processor uses FFmpeg to transcode uploaded videos. FFmpeg must be available on the machine running the worker. Render's free tier does not include FFmpeg. The recommended production approach is to run the worker on a **paid Render plan**, a **VPS with FFmpeg installed**, or keep the worker running on a **Windows machine** pointing at the production Redis and R2.
 
-### Required Accounts
+---
 
-1. **Vercel** (Frontend hosting)
-   - Sign up: https://vercel.com/
-   - Free tier: Unlimited deployments
+## Step 1 — Cloudflare R2 (Storage)
 
-2. **Render.com** (Backend + Worker)
-   - Sign up: https://render.com/
-   - Free tier: 750 hours/month
+If not already done:
 
-3. **Supabase** (PostgreSQL)
-   - Sign up: https://supabase.com/
-   - Free tier: 500MB database
+1. Log in to https://dash.cloudflare.com/
+2. Go to **R2 Object Storage** → **Create bucket**
+3. Name it (e.g. `neuroflix-videos-prod`)
+4. Go to **R2 → Manage R2 API Tokens** → **Create API Token**
+   - Permissions: Object Read & Write
+   - Scope: your bucket
+5. Save: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`
 
-4. **Upstash** (Redis)
-   - Sign up: https://upstash.com/
-   - Free tier: 10K commands/day
+---
 
-5. **Cloudflare R2** (Storage)
-   - Sign up: https://cloudflare.com/
-   - Free tier: 10GB storage + unlimited egress
+## Step 2 — PostgreSQL Database (Supabase)
 
-## Step-by-Step Deployment
-
-### 1. Setup Supabase (Database)
-
-1. Create new Supabase project
+1. Create a project at https://supabase.com/
 2. Wait for provisioning (~2 minutes)
-3. Go to Settings → Database
-4. Copy connection string (URI mode)
-5. Save for later: `DATABASE_URL`
+3. Go to **Project Settings → Database → Connection string** — select **URI** mode
+4. Copy the connection string — it looks like:
+   ```
+   postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres
+   ```
+5. Save as `DATABASE_URL`
 
-### 2. Setup Upstash (Redis)
+---
 
-1. Create new Redis database
-2. Select region close to your backend
-3. Copy REST URL
-4. Save for later: `REDIS_URL`
+## Step 3 — Redis
 
-### 3. Setup Cloudflare R2
+Choose any managed Redis service:
 
-1. Create R2 bucket: `neuroflix-videos`
-2. Go to R2 → Manage R2 API Tokens
-3. Create API token with read/write permissions
-4. Save:
-   - `R2_ACCOUNT_ID`
-   - `R2_ACCESS_KEY_ID`
-   - `R2_SECRET_ACCESS_KEY`
-   - `R2_BUCKET_NAME`
+| Service | Free tier | Notes |
+|---------|-----------|-------|
+| **Upstash** | 10 K commands/day | https://upstash.com/ — good for low-traffic |
+| **Redis Cloud** | 30 MB | https://redis.io/cloud/ |
+| **Self-hosted** | — | Docker on a VPS |
 
-### 4. Deploy Backend (Render.com)
+For Upstash:
+1. Create a Redis database at https://upstash.com/
+2. Copy the **Endpoint**, **Port**, and **Password**
+3. Set in env:
+   ```env
+   REDIS_HOST=your-host.upstash.io
+   REDIS_PORT=6379
+   REDIS_PASSWORD=your-password
+   ```
 
-#### Option A: Using render.yaml (Recommended)
+---
+
+## Step 4 — Deploy Backend (Render.com)
+
+### Option A — Using render.yaml (Recommended)
+
+A `render.yaml` Blueprint file already exists at `backend/render.yaml`. It defines both the web service and the background worker in one file.
 
 1. Push code to GitHub
-2. Go to Render Dashboard
-3. Click "New" → "Blueprint"
-4. Connect GitHub repository
-5. Select `backend/render.yaml`
-6. Configure environment variables:
-   ```
-   DATABASE_URL=<from Supabase>
-   JWT_SECRET=<generate 256-bit key>
-   R2_ACCOUNT_ID=<from Cloudflare>
-   R2_ACCESS_KEY_ID=<from Cloudflare>
-   R2_SECRET_ACCESS_KEY=<from Cloudflare>
-   R2_BUCKET_NAME=neuroflix-videos
-   REDIS_URL=<from Upstash>
-   FRONTEND_URL=<will add after frontend deployment>
-   ```
-7. Click "Apply"
-8. Wait for deployment (~5 minutes)
-9. Copy backend URL: `https://neuroflix-api.onrender.com`
+2. Go to https://dashboard.render.com/ → **New → Blueprint**
+3. Connect your GitHub repository
+4. Render will detect `backend/render.yaml` automatically
+5. Set the environment variables when prompted (marked `sync: false` in the yaml)
+6. Deploy
 
-#### Option B: Manual Setup
+### Option B — Manual setup
 
-1. Go to Render Dashboard
-2. Click "New" → "Web Service"
-3. Connect GitHub repository
+1. Push code to GitHub
+2. Go to https://dashboard.render.com/ → **New → Web Service**
+3. Connect your GitHub repository
 4. Configure:
-   - **Name**: neuroflix-api
-   - **Environment**: Node
-   - **Region**: Oregon (or nearest)
-   - **Branch**: main
+   - **Name**: `neuroflix-api`
+   - **Region**: Oregon (or nearest to your users)
+   - **Branch**: `main`
+   - **Root Directory**: `backend`
    - **Build Command**:
      ```
      npm install && npx prisma generate && npm run build
      ```
    - **Start Command**: `npm start`
-   - **Plan**: Free
-5. Add environment variables (same as above)
-6. Deploy
+   - **Plan**: Starter ($7/month) — free tier spins down after 15 min inactivity
+5. Add environment variables:
 
-### 5. Run Database Migrations
+   ```env
+   NODE_ENV=production
+   PORT=3001
+   DATABASE_URL=<from Supabase>
+   JWT_SECRET=<generate: openssl rand -hex 32>
+   R2_ACCOUNT_ID=<from Cloudflare>
+   R2_ACCESS_KEY_ID=<from Cloudflare>
+   R2_SECRET_ACCESS_KEY=<from Cloudflare>
+   R2_BUCKET_NAME=<your bucket>
+   REDIS_URL=redis://:<password>@<host>:6379
+   FRONTEND_URL=<leave blank for now, update after Step 6>
+   ```
 
-After backend is deployed:
+6. Click **Deploy**
+7. Copy the service URL: `https://neuroflix-api.onrender.com`
 
-1. Go to Render Dashboard → neuroflix-api
-2. Click "Shell"
-3. Run migrations:
+### Run database migrations
+
+After deployment:
+
+1. Open Render Dashboard → `neuroflix-api` → **Shell**
+2. Run:
    ```bash
    npx prisma migrate deploy
    ```
 
-### 6. Deploy Video Processor Worker
+---
 
-1. Go to Render Dashboard
-2. Click "New" → "Background Worker"
-3. Connect same GitHub repository
-4. Configure:
-   - **Name**: neuroflix-worker
-   - **Environment**: Node
-   - **Branch**: main
+## Step 5 — Deploy Video Processor Worker
+
+### Option A — Run locally (simplest, good for low upload volume)
+
+Keep the video processor running on a Windows machine with FFmpeg installed. Point it at the production Redis and R2:
+
+```env
+# video-processor/.env (production values)
+NODE_ENV=production
+REDIS_HOST=your-redis-host
+REDIS_PORT=6379
+REDIS_PASSWORD=your-redis-password
+R2_ACCOUNT_ID=your-r2-account-id
+R2_ACCESS_KEY_ID=your-r2-key
+R2_SECRET_ACCESS_KEY=your-r2-secret
+R2_BUCKET_NAME=neuroflix-videos-prod
+BACKEND_API_URL=https://neuroflix-api.onrender.com/api/v1
+VIDEO_PROCESSOR_API_KEY=your-internal-key
+```
+
+Then run: `npm run worker`
+
+### Option B — Render Background Worker (requires paid plan)
+
+1. Go to Render Dashboard → **New → Background Worker**
+2. Connect your GitHub repository
+3. Configure:
+   - **Root Directory**: `video-processor`
    - **Build Command**: `npm install && npm run build`
    - **Start Command**: `npm run worker`
-   - **Plan**: Free
-5. Add environment variables:
-   ```
-   REDIS_HOST=<from Upstash>
-   REDIS_PORT=6379
-   REDIS_PASSWORD=<from Upstash>
-   R2_ACCOUNT_ID=<from Cloudflare>
-   R2_ACCESS_KEY_ID=<from Cloudflare>
-   R2_SECRET_ACCESS_KEY=<from Cloudflare>
-   R2_BUCKET_NAME=neuroflix-videos
-   BACKEND_API_URL=https://neuroflix-api.onrender.com/api/v1
-   VIDEO_PROCESSOR_API_KEY=<generate key>
-   ```
-6. Deploy
+   - **Plan**: Starter ($7/month minimum — FFmpeg needs CPU)
+4. Add environment variables (same as Option A above)
+5. **Important**: FFmpeg must be available. Add a build command that downloads it, or use a Docker image that includes FFmpeg.
 
-**Note**: FFmpeg won't work on Render's free tier. For video processing, you need:
-- Option A: Paid Render plan
-- Option B: AWS Lambda with FFmpeg layer
-- Option C: Run worker locally on Windows machine
+### Option C — VPS with FFmpeg (best performance)
 
-### 7. Deploy Frontend (Vercel)
+Rent a VPS (DigitalOcean, Hetzner, etc.), install Node.js + FFmpeg, clone the repo, and run the worker as a systemd service.
 
-1. Install Vercel CLI:
-   ```bash
-   npm i -g vercel
-   ```
-
-2. Navigate to frontend:
-   ```bash
-   cd frontend
-   ```
-
-3. Deploy:
-   ```bash
-   vercel --prod
-   ```
-
-4. Follow prompts:
-   - Link to existing project? No
-   - Project name: neuroflix
-   - Directory: ./
-
-5. Configure environment variable:
-   - Go to Vercel Dashboard → Project Settings → Environment Variables
-   - Add:
-     ```
-     VITE_API_URL=https://neuroflix-api.onrender.com/api/v1
-     ```
-
-6. Redeploy:
-   ```bash
-   vercel --prod
-   ```
-
-7. Copy frontend URL: `https://neuroflix.vercel.app`
-
-### 8. Update Backend CORS
-
-1. Go to Render Dashboard → neuroflix-api
-2. Environment → Edit
-3. Update `FRONTEND_URL`:
-   ```
-   FRONTEND_URL=https://neuroflix.vercel.app
-   ```
-4. Save (automatic redeploy)
-
-## Post-Deployment
-
-### 1. Verify Deployment
-
-Visit frontend URL: https://neuroflix.vercel.app
-
-- ✅ Frontend loads
-- ✅ Login page accessible
-- ✅ Can register new user
-- ✅ Can login
-- ✅ API connectivity working
-
-### 2. Test Video Upload
-
-1. Login to application
-2. Upload test video
-3. Check Render logs for processing
-4. Verify video appears after processing
-
-### 3. Monitor Services
-
-**Render Dashboard**
-- Check backend logs
-- Check worker logs
-- Monitor memory/CPU usage
-
-**Vercel Dashboard**
-- Check deployment status
-- Monitor analytics
-
-**Supabase Dashboard**
-- Monitor database usage
-- Check query performance
-
-**Upstash Dashboard**
-- Monitor Redis commands
-- Check memory usage
-
-**Cloudflare Dashboard**
-- Monitor R2 storage usage
-- Check bandwidth
-
-## Environment Variables Reference
-
-### Frontend
-```env
-VITE_API_URL=https://neuroflix-api.onrender.com/api/v1
-```
-
-### Backend
-```env
-NODE_ENV=production
-DATABASE_URL=postgresql://...
-JWT_SECRET=<256-bit-key>
-R2_ACCOUNT_ID=<cloudflare>
-R2_ACCESS_KEY_ID=<cloudflare>
-R2_SECRET_ACCESS_KEY=<cloudflare>
-R2_BUCKET_NAME=neuroflix-videos
-REDIS_URL=redis://...
-FRONTEND_URL=https://neuroflix.vercel.app
-```
-
-### Video Processor
-```env
-NODE_ENV=production
-REDIS_HOST=<upstash>
-REDIS_PORT=6379
-REDIS_PASSWORD=<upstash>
-R2_ACCOUNT_ID=<cloudflare>
-R2_ACCESS_KEY_ID=<cloudflare>
-R2_SECRET_ACCESS_KEY=<cloudflare>
-R2_BUCKET_NAME=neuroflix-videos
-BACKEND_API_URL=https://neuroflix-api.onrender.com/api/v1
-VIDEO_PROCESSOR_API_KEY=<generate>
-```
-
-## Cost Analysis
-
-**Free Tier Limits**:
-- Vercel: Unlimited deployments
-- Render: 750 hours/month (one service)
-- Supabase: 500MB database
-- Upstash: 10K commands/day
-- Cloudflare R2: 10GB storage + unlimited egress
-
-**Estimated Monthly Cost**: $0 (within free tiers)
-
-**If Exceeding Free Tiers**:
-- Render: $7/month (paid plan)
-- Supabase: $25/month (Pro plan)
-- Upstash: $10/month (paid plan)
-- Total: ~$42/month
-
-## Scaling
-
-### When to Scale
-
-- **Render**: Upgrade when >750 hours/month or need more CPU/RAM
-- **Supabase**: Upgrade when >500MB database
-- **Upstash**: Upgrade when >10K commands/day
-- **R2**: Upgrade when >10GB storage
-
-### Scaling Options
-
-1. **Horizontal Scaling**: Add more Render workers
-2. **Vertical Scaling**: Upgrade to paid Render plans
-3. **CDN**: Add Cloudflare CDN for frontend
-4. **Database**: Upgrade Supabase plan or migrate to dedicated PostgreSQL
-
-## Troubleshooting
-
-### Backend Not Responding
-
-- Check Render logs
-- Verify environment variables
-- Check database connection
-- Restart service
-
-### Worker Not Processing Videos
-
-- Check Render worker logs
-- Verify Redis connection
-- Check R2 credentials
-- Ensure FFmpeg is available (not on free tier)
-
-### Frontend Can't Connect
-
-- Verify VITE_API_URL
-- Check CORS settings
-- Verify backend is running
-
-### Database Errors
-
-- Check DATABASE_URL format
-- Run migrations: `npx prisma migrate deploy`
-- Check Supabase dashboard for errors
-
-## Rollback
-
-If deployment fails:
-
-**Vercel**:
 ```bash
-vercel rollback
-```
-
-**Render**:
-- Dashboard → Deployments → Select previous → Redeploy
-
-## CI/CD (Optional)
-
-### GitHub Actions
-
-Create `.github/workflows/deploy.yml`:
-
-```yaml
-name: Deploy
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy-frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 18
-      - run: cd frontend && npm ci
-      - run: cd frontend && npm run build
-      - uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+# On the VPS:
+sudo apt install ffmpeg
+cd video-processor
+npm install && npm run build
+npm run worker
 ```
 
 ---
 
-**Deployment complete! 🎉**
+## Step 6 — Deploy Frontend (Vercel)
+
+1. Install Vercel CLI: `npm i -g vercel`
+2. Navigate to the frontend directory: `cd frontend`
+3. Run: `vercel --prod`
+4. Follow the prompts (link to new project, name it `neuroflix`)
+5. In Vercel Dashboard → Project → **Settings → Environment Variables**, add:
+   ```
+   VITE_API_URL = https://neuroflix-api.onrender.com/api/v1
+   ```
+6. Redeploy: `vercel --prod`
+7. Copy your frontend URL: `https://neuroflix.vercel.app`
+
+---
+
+## Step 7 — Update Backend CORS
+
+1. Go to Render Dashboard → `neuroflix-api` → **Environment**
+2. Update `FRONTEND_URL` to your Vercel URL:
+   ```
+   FRONTEND_URL=https://neuroflix.vercel.app
+   ```
+3. Save — Render will automatically redeploy
+
+---
+
+## Environment Variable Reference
+
+### Backend (production)
+
+```env
+NODE_ENV=production
+PORT=3001
+DATABASE_URL=postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres
+JWT_SECRET=<64-char random hex>
+JWT_EXPIRES_IN=24h
+R2_ACCOUNT_ID=<cloudflare>
+R2_ACCESS_KEY_ID=<cloudflare>
+R2_SECRET_ACCESS_KEY=<cloudflare>
+R2_BUCKET_NAME=neuroflix-videos-prod
+REDIS_URL=redis://:<password>@<host>:6379
+FRONTEND_URL=https://neuroflix.vercel.app
+VIDEO_PROCESSOR_API_KEY=<shared secret with worker>
+```
+
+### Video Processor (production)
+
+```env
+NODE_ENV=production
+REDIS_HOST=<your-redis-host>
+REDIS_PORT=6379
+REDIS_PASSWORD=<your-redis-password>
+R2_ACCOUNT_ID=<cloudflare>
+R2_ACCESS_KEY_ID=<cloudflare>
+R2_SECRET_ACCESS_KEY=<cloudflare>
+R2_BUCKET_NAME=neuroflix-videos-prod
+BACKEND_API_URL=https://neuroflix-api.onrender.com/api/v1
+VIDEO_PROCESSOR_API_KEY=<same as backend>
+```
+
+### Frontend (production)
+
+```env
+VITE_API_URL=https://neuroflix-api.onrender.com/api/v1
+```
+
+---
+
+## Post-Deployment Checklist
+
+- [ ] Frontend loads at Vercel URL
+- [ ] Can register a new account
+- [ ] Can log in
+- [ ] Upload a video — confirm it appears as "Processing" then "Ready"
+- [ ] Play the video — confirm HLS loads and quality switches work
+- [ ] Progress saves and resumes correctly
+- [ ] Checkpoint questions pause the video and require a correct answer
+
+---
+
+## Estimated Monthly Cost
+
+| Service | Free tier | Paid |
+|---------|-----------|------|
+| Vercel (frontend) | Unlimited | $0 |
+| Render (backend) | 750 h/month (spins down) | $7/month (always-on) |
+| Supabase (DB) | 500 MB | $25/month (Pro) |
+| Upstash (Redis) | 10 K commands/day | $10/month |
+| Cloudflare R2 | 10 GB storage + 0 egress | $0.015/GB over 10 GB |
+| **Total** | **$0** (low traffic) | **~$42/month** (production) |
+
+---
+
+## Troubleshooting
+
+### Backend not responding
+- Check Render logs for startup errors
+- Verify all environment variables are set
+- Confirm the database migration ran: `npx prisma migrate deploy`
+
+### Videos stuck in "Processing"
+- Check that the video processor worker is running and connected to the same Redis instance as the backend
+- Check worker logs for FFmpeg errors
+- Verify R2 credentials are correct in both backend and worker env files
+
+### Frontend can't connect to API
+- Verify `VITE_API_URL` points to the correct backend URL (no trailing slash)
+- Check `FRONTEND_URL` in the backend env matches the Vercel domain exactly (CORS)
+- Check browser Network tab for the actual error response
+
+### Database migration failed
+- Ensure `DATABASE_URL` is the full connection string with password
+- Run from the Render shell: `npx prisma migrate deploy`
+- Check Supabase dashboard for any connection limit issues

@@ -1,0 +1,46 @@
+# ============================================================
+# Root-level .gitignore for the Player repository
+# Git root is here (Player\Player\), project is in neuroflix\
+# ============================================================
+
+# Claude Code / AI assistant session files
+.claude/
+.cursor/
+.windsurf/
+
+# AI development artifacts — implementation prompts and planning docs
+# These are local working files and should not go to GitHub
+NEUROFLIX_IMPLEMENTATION_PROMPTS_*.md
+NEUROFLIX_MASTER_PLAN.md
+*.pdf
+
+# ============================================================
+# neuroflix/ project ignores
+# (neuroflix\.gitignore also covers these within the subdir,
+#  but root-level entries ensure they're never accidentally staged)
+# ============================================================
+
+# Dependencies
+neuroflix/**/node_modules/
+
+# Environment files with credentials — NEVER commit these
+neuroflix/**/.env
+neuroflix/backend/.env
+neuroflix/video-processor/.env
+
+# FFmpeg binaries (downloaded by scripts/download-ffmpeg.js)
+neuroflix/video-processor/ffmpeg/bin/
+neuroflix/video-processor/ffmpeg/ffmpeg-*/
+
+# Build output
+neuroflix/**/dist/
+neuroflix/**/build/
+neuroflix/**/*.tsbuildinfo
+
+# Logs
+*.log
+neuroflix/**/logs/
+
+# OS files
+.DS_Store
+Thumbs.db
