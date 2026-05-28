@@ -1,0 +1,82 @@
+[
+  {
+    "videoId": "95a8bf39-f339-419a-8b81-c86d9309c255",
+    "checkpoints": [
+      {
+        "id": "cp-1",
+        "timestamp": 3,
+        "question": "What does HLS stand for?",
+        "options": [
+          "HTTP Live Streaming",
+          "High Level Streaming",
+          "Hybrid Live Streaming",
+          "Hypertext Live Streaming"
+        ],
+        "correctAnswer": 0
+      }
+    ]
+  },
+  {
+    "videoId": "47ceb4b4-134c-405d-915e-2da9a1295530",
+    "checkpoints": [
+      {
+        "id": "cp-2",
+        "timestamp": 30,
+        "question": "What is the main advantage of HLS streaming?",
+        "options": [
+          "Better video quality",
+          "Adaptive bitrate streaming",
+          "Smaller file size",
+          "Faster uploads"
+        ],
+        "correctAnswer": 1
+      },
+      {
+        "id": "cp-3",
+        "timestamp": 70,
+        "question": "What is the main advantage of HLS streaming?",
+        "options": [
+          "Better video quality",
+          "Adaptive bitrate streaming",
+          "Smaller file size",
+          "Faster uploads"
+        ],
+        "correctAnswer": 1
+      }
+    ]
+  },
+  {
+    "videoId": "71b6c5c4-71db-4e80-a47a-1fdd897af5e2",
+    "checkpoints": [
+      {
+        "id": "cp-4",
+        "timestamp": 15,
+        "question": "What is the main advantage of HLS streaming?",
+        "options": [
+          "Better video quality",
+          "Adaptive bitrate streaming",
+          "Smaller file size",
+          "Faster uploads"
+        ],
+        "correctAnswer": 1
+      }
+    ]
+  },
+  {
+    "videoId": "02594adb-cc52-4b3a-b2ec-12d4f528a839",
+    "checkpoints": [
+      {
+        "id": "cp-5",
+        "timestamp": 5,
+        "question": "What is the main advantage of HLS streaming?",
+        "options": [
+          "Better video quality",
+          "Adaptive bitrate streaming",
+          "Smaller file size",
+          "Faster uploads"
+        ],
+        "correctAnswer": 1
+      }
+    ]
+  }
+]

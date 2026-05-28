@@ -1,0 +1,129 @@
+// Prisma Schema for Neuroflix Application
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// User model
+// NOTE: password is bcrypt hashed (10 rounds) — never store plain text
+// ---------------------------------------------------------------------------
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  password     String   // bcrypt hashed, 10 rounds
+  organization String
+  firstName    String?
+  lastName     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  videoProgress     VideoProgress[]
+  checkpointAnswers CheckpointAnswer[]
+
+  @@index([email])
+}
+
+// ---------------------------------------------------------------------------
+// Video model
+// NOTE: Storage paths are Cloudflare R2 object keys (not full URLs)
+//       duration is in seconds — frontend converts to MM:SS display
+//       fileSize uses BigInt to support large files (> 2 GB)
+//       Checkpoint definitions are stored in checkpoints.json, not here
+// ---------------------------------------------------------------------------
+model Video {
+  id                String      @id @default(uuid())
+  title             String
+  description       String?
+  duration          Int         // seconds
+  status            VideoStatus @default(UPLOADING)
+
+  // Storage paths (Cloudflare R2 object keys)
+  originalFilename  String
+  uploadPath        String?     // uploads/video-id/original.mp4
+  hlsPath           String?     // videos/video-id/master.m3u8
+  thumbnailVttPath  String?     // videos/video-id/thumbnails.vtt
+  spritePath        String?     // videos/video-id/sprite.jpg
+
+  // Metadata
+  fileSize          BigInt?     // bytes (BigInt supports files > 2 GB)
+  originalDuration  Int?        // seconds (before processing / trimming)
+
+  // Timestamps
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  processedAt       DateTime?
+
+  // Relations
+  progress          VideoProgress[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// VideoStatus enum
+// ---------------------------------------------------------------------------
+enum VideoStatus {
+  UPLOADING
+  PROCESSING
+  READY
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// VideoProgress model
+// Tracks per-user watch progress for each video
+// @@unique([userId, videoId]) ensures one progress record per user/video pair
+// ---------------------------------------------------------------------------
+model VideoProgress {
+  id          String   @id @default(uuid())
+  userId      String
+  videoId     String
+
+  currentTime Int      @default(0) // seconds
+  completed   Boolean  @default(false)
+  lastWatched DateTime @default(now())
+
+  // Relations
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+  @@index([userId])
+  @@index([videoId])
+  @@index([lastWatched])
+}
+
+// ---------------------------------------------------------------------------
+// CheckpointAnswer model
+// Records each user's answer to a checkpoint question
+// checkpointId references a checkpoint defined in checkpoints.json
+// answer is the 0-based index (0–3) of the selected option
+// ---------------------------------------------------------------------------
+model CheckpointAnswer {
+  id           String   @id @default(uuid())
+  userId       String
+  videoId      String   // Denormalised for easier per-video queries
+  checkpointId String   // From checkpoints.json (not a DB foreign key)
+
+  answer       Int      // 0-3 (index of selected answer)
+  isCorrect    Boolean
+  timeSpent    Int?     // seconds taken to answer
+
+  answeredAt   DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, videoId])
+  @@index([checkpointId])
+  @@index([answeredAt])
+}

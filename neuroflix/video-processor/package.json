@@ -1,0 +1,30 @@
+{
+  "name": "neuroflix-video-processor",
+  "version": "1.0.0",
+  "description": "Neuroflix Video Transcoding Service (FFmpeg + HLS + BullMQ)",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "worker": "tsx src/queue/worker.ts",
+    "test:ffmpeg": "tsx src/tests/test-ffmpeg.ts",
+    "download:ffmpeg": "node scripts/download-ffmpeg.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.400.0",
+    "axios": "^1.4.0",
+    "bullmq": "^4.0.0",
+    "dotenv": "^17.4.2",
+    "ioredis": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^3.12.7",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}

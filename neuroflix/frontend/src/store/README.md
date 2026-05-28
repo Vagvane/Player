@@ -1,0 +1,3 @@
+﻿# Store
+
+Global state management.

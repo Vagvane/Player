@@ -1,0 +1,81 @@
+/* ==========================================================================
+   Animations
+   Reusable keyframe animations and their utility classes.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Pulse animation
+   Slow opacity pulse for live indicators, recording dots, or attention cues.
+   -------------------------------------------------------------------------- */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* --------------------------------------------------------------------------
+   2. Scale-up animation
+   Gentle pop-in for modals, dropdowns, and popovers.
+   -------------------------------------------------------------------------- */
+@keyframes scaleUp {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-scaleUp {
+  animation: scaleUp 0.2s ease-out;
+}
+
+/* --------------------------------------------------------------------------
+   3. Shimmer animation
+   Horizontal sweep used for loading skeletons; pair with placeholder blocks.
+   -------------------------------------------------------------------------- */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite linear;
+  background: linear-gradient(
+    to right,
+    #1f1f1f 0%,
+    #2a2a2a 50%,
+    #1f1f1f 100%
+  );
+  background-size: 1000px 100%;
+}
+
+/* --------------------------------------------------------------------------
+   4. Bounce animation
+   Subtle vertical bounce for scroll cues, hints, or empty-state nudges.
+   -------------------------------------------------------------------------- */
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.animate-bounce-slow {
+  animation: bounce 2s infinite;
+}

@@ -1,0 +1,49 @@
+{
+  "name": "neuroflix-video-player",
+  "version": "1.0.0",
+  "description": "Corporate training video player with Netflix-like experience, HLS streaming, and checkpoint questions",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend",
+    "video-processor"
+  ],
+  "scripts": {
+    "setup": "node scripts/test-setup.js",
+    "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
+    "download:ffmpeg": "node scripts/download-ffmpeg.js",
+
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:worker": "cd video-processor && npm run worker",
+    "dev:all": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\" \"npm run dev:worker\"",
+
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "build:processor": "cd video-processor && npm run build",
+    "build:all": "npm run build:frontend && npm run build:backend && npm run build:processor",
+
+    "test:setup": "node scripts/test-setup.js",
+
+    "clean": "rimraf frontend/dist frontend/node_modules backend/dist backend/node_modules video-processor/dist video-processor/node_modules",
+    "clean:builds": "rimraf frontend/dist backend/dist video-processor/dist"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0",
+    "rimraf": "^5.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "keywords": [
+    "video-player",
+    "hls",
+    "streaming",
+    "react",
+    "typescript",
+    "corporate-training"
+  ],
+  "author": "Neuroflix Team",
+  "license": "MIT"
+}

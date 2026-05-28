@@ -1,0 +1,112 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+*.lcov
+.nyc_output
+
+# Production builds
+dist/
+build/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.history/
+
+# Prisma — migrations must be committed for `prisma migrate deploy` to work
+backend/.env
+
+# FFmpeg binaries
+video-processor/ffmpeg/
+*.zip
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# Video files (for testing)
+*.mp4
+*.mov
+*.avi
+*.mkv
+# Note: *.ts is intentionally NOT ignored here — it would catch TypeScript source files.
+# HLS transport stream segments (.ts) are covered by the output/temp directories below.
+
+# Thumbnails
+*.jpg
+*.jpeg
+*.png
+sprite.jpg
+thumbnails.vtt
+
+# Output directories
+output/
+video-processor/output/
+video-processor/temp/
+
+# Lock files — commit package-lock.json; ignore alternatives if you switch package managers
+yarn.lock
+pnpm-lock.yaml
+
+# Build artifacts
+*.tsbuildinfo
+.turbo/
+
+# Local database
+*.db
+*.sqlite
+*.sqlite3
+
+# Redis dumps
+dump.rdb
+
+# Editor directories
+.vscode/
+.idea/
+
+# Misc
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.vercel/
+
+# IDE / AI assistant session files
+.claude/
+.cursor/
+.windsurf/
+
+# Service-level env files (credentials — never commit these)
+video-processor/.env
+frontend/.env.local
