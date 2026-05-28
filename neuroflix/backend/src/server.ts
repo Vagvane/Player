@@ -20,7 +20,7 @@ import 'dotenv/config'
 import { createApp } from './app'
 import { env } from './config/app.config'
 import { testConnection } from './config/database'
-import { testR2Connection } from './config/r2.config'
+import { testR2Connection, configureBucketCors } from './config/r2.config'
 import { logger } from './utils/logger'
 
 /**
@@ -68,6 +68,20 @@ async function startServer(): Promise<void> {
       logger.warn('⚠️  R2 connection failed - uploads and signed URLs will not work')
     } else {
       logger.info('✅ Cloudflare R2 connection established')
+
+      // When CDN mode is active (R2_PUBLIC_URL set), configure CORS on the
+      // bucket so browsers can fetch HLS files directly from the Cloudflare
+      // edge without being blocked by the same-origin policy.
+      // This is a no-op in proxy mode (no R2_PUBLIC_URL).
+      if (process.env.R2_PUBLIC_URL) {
+        logger.info('🌐 CDN mode enabled — configuring R2 bucket CORS...')
+        const corsOk = await configureBucketCors()
+        if (corsOk) {
+          logger.info('✅ R2 CORS rules applied')
+        } else {
+          logger.warn('⚠️  R2 CORS configuration failed — CDN requests may be blocked by browsers')
+        }
+      }
     }
 
     // -----------------------------------------------------------------------

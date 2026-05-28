@@ -126,16 +126,12 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
     htmlVideoRef.current = videoElementRef.current?.getVideoElement() ?? null;
   }, []);
 
-  // Sync quality levels after hls.js has had time to parse the manifest.
-  // 2.5s covers slow connections; a faster machine will have levels by 1s.
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const el = videoElementRef.current;
-      if (!el) return;
-      setQualityLevels(el.getLevels());
-      setCurrentQualityLevel(el.getCurrentLevel());
-    }, 2500);
-    return () => clearTimeout(timer);
+  // Populate quality levels the moment hls.js fires MANIFEST_PARSED —
+  // no timer needed. VideoElement calls this callback via its
+  // onManifestParsed prop as soon as levels become available.
+  const handleManifestParsed = useCallback((levels: HLSLevel[], level: number) => {
+    setQualityLevels(levels);
+    setCurrentQualityLevel(level);
   }, []);
 
   const handleSetLevel = useCallback((level: number) => {
@@ -143,11 +139,19 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
     setCurrentQualityLevel(level);
   }, []);
 
+  // If the saved resume position is within 5 s of the recorded duration, the
+  // viewer finished the video last time — start fresh so they're not dropped
+  // at the very end, and so checkpoints fire again on the rewatch.
+  const isFreshWatch =
+    !videoData.resumeTime ||
+    (videoData.duration > 0 && videoData.resumeTime >= videoData.duration - 5);
+
   const { activeCheckpoint, handleAnswer, isSubmitting: checkpointSubmitting, submitError, wrongAnswer } = useCheckpoints({
     checkpoints,
     currentTime,
     videoRef: htmlVideoRef,
     onAnswerSubmitted,
+    skipHistory: isFreshWatch,
   });
 
     useEffect(() => {
@@ -173,8 +177,12 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
   const onLoadedMetadata = useCallback(
     (dur: number) => {
       setDuration(dur);
-      if (videoData.resumeTime && videoData.resumeTime > 0) {
-        videoElementRef.current?.seek(videoData.resumeTime);
+      const resumeTime = videoData.resumeTime ?? 0;
+      // Don't seek when near the end — the viewer finished the video last time.
+      // isFreshWatch already gates checkpoint history; here we gate the seek.
+      const isNearEnd = dur > 0 && resumeTime >= dur - 5;
+      if (resumeTime > 0 && !isNearEnd) {
+        videoElementRef.current?.seek(resumeTime);
       }
     },
     [setDuration, videoData.resumeTime],
@@ -201,7 +209,6 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
   }, []);
 
   const onError = useCallback((error: string) => {
-    // eslint-disable-next-line no-console
     console.error('Video error:', error);
     setPlaybackError(error);
   }, []);
@@ -263,6 +270,7 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
         onProgress={onProgress}
         onEnded={onEnded}
         onError={onError}
+        onManifestParsed={handleManifestParsed}
       />
 
       {/* Layer 30 — top gradient + title bar. Fades in with controls. */}

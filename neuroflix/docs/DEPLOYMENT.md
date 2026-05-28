@@ -33,6 +33,23 @@ If not already done:
 
 ---
 
+## Step 1b — Enable Cloudflare CDN for HLS (Recommended for Production)
+
+By default the backend proxies every HLS request through Express. In production you can offload all video bandwidth to Cloudflare's global edge network at zero egress cost.
+
+1. In the Cloudflare dashboard → **R2 → your bucket → Settings → Public Access**
+2. Enable the **r2.dev subdomain** (or connect a custom domain)
+3. Copy the public URL — it looks like `https://pub-abc123.r2.dev`
+4. Add to the backend's production environment variables:
+   ```env
+   R2_PUBLIC_URL=https://pub-abc123.r2.dev
+   ```
+5. Restart the backend — `hlsUrl` in API responses will now point directly to Cloudflare's CDN.
+
+> Without `R2_PUBLIC_URL` set, the backend falls back to proxy mode automatically.
+
+---
+
 ## Step 2 — PostgreSQL Database (Supabase)
 
 1. Create a project at https://supabase.com/
@@ -218,6 +235,8 @@ R2_BUCKET_NAME=neuroflix-videos-prod
 REDIS_URL=redis://:<password>@<host>:6379
 FRONTEND_URL=https://neuroflix.vercel.app
 VIDEO_PROCESSOR_API_KEY=<shared secret with worker>
+# Optional — enable CDN mode (see Step 1b). Leave unset to use proxy mode.
+# R2_PUBLIC_URL=https://pub-abc123.r2.dev
 ```
 
 ### Video Processor (production)

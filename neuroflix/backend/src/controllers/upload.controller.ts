@@ -2,7 +2,7 @@
  * @file upload.controller.ts
  * @description Upload controller for video file ingestion and processing status tracking.
  * Files are stored in memory by multer and streamed directly to Cloudflare R2.
- * After upload, a processing job should be queued (Part 4 - Video Processor).
+ * After upload, a processing job is queued via BullMQ for the video processor to pick up.
  *
  * @remarks
  * File size and MIME type validation is enforced at the multer level before the
@@ -82,11 +82,11 @@ export const uploadMiddleware = upload.single('video')
  * @remarks
  * Flow:
  * 1. Validate authentication and file presence
- * 2. Create a `PENDING` video record in the database
+ * 2. Create a `UPLOADING` video record in the database
  * 3. Upload the raw file buffer to Cloudflare R2
  * 4. Queue a transcoding job via the Video Processor
  *
- * The video status remains `PENDING` until the Video Processor marks it `READY`.
+ * The video status remains `UPLOADING` until the Video Processor marks it `READY`.
  */
 export async function uploadVideo(req: Request, res: Response): Promise<void> {
   try {
@@ -106,7 +106,7 @@ export async function uploadVideo(req: Request, res: Response): Promise<void> {
 
     logger.info(`Starting video upload: ${title} (${req.file.originalname})`)
 
-    // Create a database record in PENDING state before uploading to R2
+    // Create a database record in UPLOADING state before uploading to R2
     const video = await createVideo({
       title,
       description,
@@ -142,7 +142,6 @@ export async function uploadVideo(req: Request, res: Response): Promise<void> {
     }).catch((err) => {
       logger.warn(`⚠️ Failed to queue job for video ${video.id} — may need manual requeue`, err)
     })
-    // await queueTranscodeJob(video.id)
 
     res.status(201).json({
       success: true,
@@ -166,7 +165,7 @@ export async function uploadVideo(req: Request, res: Response): Promise<void> {
  *
  * @remarks
  * Possible status values (from VideoStatus enum):
- * - `PENDING`    — uploaded, awaiting transcoding
+ * - `UPLOADING`    — uploaded, awaiting transcoding
  * - `PROCESSING` — FFmpeg transcoding in progress
  * - `READY`      — HLS streams generated and available
  * - `FAILED`     — processing encountered an unrecoverable error

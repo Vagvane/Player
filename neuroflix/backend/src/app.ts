@@ -55,7 +55,7 @@ export function createApp(): Express {
    */
   app.use(
     helmet({
-      contentSecurityPolicy: false, // TODO: enable with HLS-compatible policy in production
+      contentSecurityPolicy: false, // Disabled: HLS needs script-src, media-src, and connect-src for CDN origins — configure per-deployment
       crossOriginEmbedderPolicy: false, // Required for video streaming cross-origin resources
       crossOriginResourcePolicy: { policy: 'cross-origin' } // Allow frontend (port 5173) to load media from backend (port 3001)
     })

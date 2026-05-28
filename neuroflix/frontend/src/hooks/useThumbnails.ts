@@ -60,7 +60,9 @@ async function fetchWithRetry(url: string, signal: AbortSignal): Promise<string>
       lastError = err;
       const isClientError =
         err instanceof Error && /^HTTP 4\d{2}/.test(err.message);
-      if (isClientError || attempt === MAX_FETCH_ATTEMPTS - 1) {
+      // TypeError: Failed to fetch = CORS block or offline — retrying won't help
+      const isNetworkBlock = err instanceof TypeError;
+      if (isClientError || isNetworkBlock || attempt === MAX_FETCH_ATTEMPTS - 1) {
         break;
       }
       // Exponential backoff: 500ms, 1s, 2s...

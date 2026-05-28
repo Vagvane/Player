@@ -18,8 +18,14 @@ export enum VideoStatus {
 /**
  * Canonical server-side representation of a video record.
  *
- * Paths are storage keys (e.g. R2 object keys), not user-facing URLs.
- * Signed URLs for playback are produced separately — see {@link VideoMetadata}.
+ * Paths are R2 object keys (never user-facing). Delivery URLs are attached
+ * by the backend when a `R2_PUBLIC_URL` (CDN mode) is configured:
+ *   - `hlsUrl`    — HLS master playlist URL (CDN or proxy)
+ *   - `spriteUrl` — Sprite sheet image URL (CDN only; proxy mode omits this
+ *                   and lets the frontend construct it from `VITE_API_URL`)
+ *
+ * For full playback metadata (VTT, checkpoints, watermark, resume time)
+ * see {@link VideoMetadata}.
  */
 export interface Video {
   /** Stable UUID identifier. */
@@ -42,6 +48,16 @@ export interface Video {
   createdAt: Date;
   /** Last-modified timestamp. */
   updatedAt: Date;
+  /**
+   * HLS master playlist URL — set by the backend in both CDN and proxy mode.
+   * Used by `VideoCard` for hover previews; the full player uses `VideoMetadata.hlsUrl`.
+   */
+  hlsUrl?: string;
+  /**
+   * Sprite sheet image URL — set by the backend in CDN mode only.
+   * `undefined` in proxy mode; `VideoCard` falls back to `${apiUrl}/videos/:id/hls/sprite.jpg`.
+   */
+  spriteUrl?: string;
 }
 
 /**

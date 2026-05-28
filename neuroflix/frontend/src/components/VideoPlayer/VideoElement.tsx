@@ -49,6 +49,13 @@ export interface VideoElementProps {
   onEnded: () => void;
   /** Fired for fatal playback errors (HLS or `<video>`-level). */
   onError: (error: string) => void;
+  /**
+   * Fired once when hls.js finishes parsing the master manifest and the
+   * quality-level list becomes available. Use this instead of polling
+   * `getLevels()` on a timer — it fires as soon as hls.js emits
+   * `MANIFEST_PARSED`, regardless of network speed.
+   */
+  onManifestParsed?: (levels: HLSLevel[], currentLevel: number) => void;
   /** Optional Tailwind class override for the `<video>` element. */
   className?: string;
 }
@@ -81,6 +88,7 @@ function VideoElement(
     onProgress,
     onEnded,
     onError,
+    onManifestParsed,
     className,
   } = props;
 
@@ -99,7 +107,7 @@ useEffect(() => {
   }
 }, [playbackRate]);
 
-   const { hls, levels, currentLevel } =  useHLS({
+  const { hls, levels, currentLevel } = useHLS({
     videoRef,
     hlsUrl,
     onLoadedMetadata,
@@ -107,6 +115,23 @@ useEffect(() => {
       // Quality changes are reflected in the store via QualitySelector — no log needed.
     },
   });
+
+  // Keep the latest callback in a ref so the effect below doesn't re-run
+  // every time the parent re-renders and passes a fresh closure.
+  const onManifestParsedRef = useRef(onManifestParsed);
+  useEffect(() => {
+    onManifestParsedRef.current = onManifestParsed;
+  }, [onManifestParsed]);
+
+  // Fire the manifest-parsed callback as soon as hls.js populates levels.
+  // This replaces any setTimeout-based polling in the parent — we react to
+  // the actual MANIFEST_PARSED event (via levels state change) rather than
+  // guessing when it will have fired.
+  useEffect(() => {
+    if (levels.length > 0) {
+      onManifestParsedRef.current?.(levels, currentLevel);
+    }
+  }, [levels, currentLevel]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -140,7 +165,6 @@ useEffect(() => {
 
     const handleError = () => {
       const mediaError = video.error;
-      // eslint-disable-next-line no-console
       console.error('Video element error:', mediaError);
       onError(mediaError?.message || 'Video playback error');
     };
@@ -190,7 +214,6 @@ useEffect(() => {
         } catch (error) {
           // Autoplay policies (Chrome/Safari) reject play() until the
           // user interacts with the page — log and let the UI prompt.
-          // eslint-disable-next-line no-console
           console.error('Play failed:', error);
         }
       },

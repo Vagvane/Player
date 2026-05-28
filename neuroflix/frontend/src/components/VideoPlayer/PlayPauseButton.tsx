@@ -42,10 +42,8 @@ const PauseIcon: FC = () => (
  * `<video>` element and the store stay in lockstep — including the
  * autoplay-policy promise-rejection path.
  *
- * Sizing: 40×40px on mobile and 48×48px from `md:` up. The 40px
- * minimum is below the 44px Apple HIG floor on its own, but the
- * surrounding `PlayerControls` container provides extra padding so
- * the effective touch target stays comfortably ≥44px on phones.
+ * Sizing: 44×44px on mobile (meets the Apple HIG minimum touch-target
+ * guideline) and 48×48px from `md:` up.
  *
  * @example
  * ```tsx
@@ -64,7 +62,7 @@ const PlayPauseButton: FC<PlayPauseButtonProps> = ({ videoRef }) => {
       aria-label={isPlaying ? 'Pause' : 'Play'}
       aria-pressed={isPlaying}
       className="
-        w-10 h-10 md:w-12 md:h-12
+        w-11 h-11 md:w-12 md:h-12
         flex items-center justify-center
         rounded-full
         hover:bg-white/20

@@ -15,7 +15,10 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { r2Client, r2Config, getR2Key } from '../config/r2.config'
 import { logger } from '../utils/logger'
-import { Readable } from 'stream'
+import { Readable, pipeline as streamPipeline } from 'stream'
+import { promisify } from 'util'
+
+const pipeline = promisify(streamPipeline)
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -159,6 +162,70 @@ export async function downloadFile(key: string): Promise<Buffer> {
     throw new Error(`R2 download failed: ${error}`)
   }
 }
+
+// ---------------------------------------------------------------------------
+// Stream (pipe — zero buffer, bytes flow directly to the HTTP response)
+// ---------------------------------------------------------------------------
+
+/**
+ * Open a streaming connection to an R2 object and return the raw body stream.
+ *
+ * Unlike {@link downloadFile}, this function does **not** accumulate the
+ * entire object into a Node.js `Buffer`.  The caller receives a live
+ * `Readable` that they can `.pipe()` (or use with `stream/promises`
+ * `pipeline`) directly into an Express `Response`.  This keeps memory usage
+ * constant regardless of file size — critical for large `.ts` video segments.
+ *
+ * @param key          - R2 object key (leading slash stripped automatically)
+ * @param destination  - A Node.js `Writable` stream to pipe into (e.g. an
+ *                       Express `Response`). When provided the function awaits
+ *                       completion and resolves when all bytes have been sent.
+ *                       When omitted the raw `Readable` is returned for the
+ *                       caller to pipe manually.
+ * @returns Metadata object with the body stream, content-type, and byte length.
+ * @throws  Re-throws R2 errors wrapped with an `R2 stream failed:` prefix.
+ *
+ * @example
+ * // Pipe directly to Express response:
+ * const { body, contentType, contentLength } = await streamFile('videos/abc/seg.ts')
+ * res.set('Content-Type', contentType ?? 'video/mp2t')
+ * if (contentLength) res.set('Content-Length', String(contentLength))
+ * await pipeline(body, res)
+ */
+export async function streamFile(key: string): Promise<{
+  body: Readable
+  contentType?: string
+  contentLength?: number
+}> {
+  try {
+    const r2Key = getR2Key(key)
+
+    const response = await r2Client.send(
+      new GetObjectCommand({
+        Bucket: r2Config.bucketName,
+        Key: r2Key
+      })
+    )
+
+    if (!response.Body) {
+      throw new Error('File body is empty')
+    }
+
+    logger.debug(`Streaming file: ${r2Key}`)
+
+    return {
+      body: response.Body as Readable,
+      contentType: response.ContentType,
+      contentLength: response.ContentLength
+    }
+  } catch (error) {
+    logger.error('File stream failed', error)
+    throw new Error(`R2 stream failed: ${error}`)
+  }
+}
+
+// Re-export pipeline so controllers can import a single symbol:
+export { pipeline as streamPipeline }
 
 // ---------------------------------------------------------------------------
 // Delete

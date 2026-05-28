@@ -12,7 +12,6 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "moduleResolution": "node",
-    "ignoreDeprecations": "6.0",
     "allowSyntheticDefaultImports": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
@@ -24,14 +23,13 @@
     "sourceMap": true,
 
     /* Path aliases */
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@config/*": ["src/config/*"],
-      "@transcoder/*": ["src/transcoder/*"],
-      "@thumbnails/*": ["src/thumbnails/*"],
-      "@queue/*": ["src/queue/*"],
-      "@utils/*": ["src/utils/*"]
+      "@/*": ["./src/*"],
+      "@config/*": ["./src/config/*"],
+      "@transcoder/*": ["./src/transcoder/*"],
+      "@thumbnails/*": ["./src/thumbnails/*"],
+      "@queue/*": ["./src/queue/*"],
+      "@utils/*": ["./src/utils/*"]
     }
   },
   "include": ["src/**/*"],

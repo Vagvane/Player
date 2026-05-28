@@ -90,7 +90,7 @@ const VolumeControl: FC<VolumeControlProps> = ({ videoRef }) => {
         aria-label={isMuted ? 'Unmute' : 'Mute'}
         aria-pressed={isMuted}
         className="
-          w-9 h-9
+          w-11 h-11
           flex items-center justify-center
           rounded-full
           text-white hover:bg-white/20

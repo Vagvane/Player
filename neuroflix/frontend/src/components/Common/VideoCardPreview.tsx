@@ -33,14 +33,18 @@ const VideoCardPreview: FC<VideoCardPreviewProps> = ({ hlsUrl, onReady }) => {
 
     if (Hls.isSupported()) {
       hls = new Hls({
-        startLevel: 0,
-        maxBufferLength: 8,
-        maxMaxBufferLength: 16,
+        // Always use the lowest quality for hover previews — they're small,
+        // muted, and the viewer just needs motion feedback, not full resolution.
+        startLevel: 3,
+        maxBufferLength: 6,
+        maxMaxBufferLength: 12,
+        startFragPrefetch: true,
       });
       hls.loadSource(hlsUrl);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        hls!.currentLevel = 0;
+        // Force lowest level regardless of ABR decision
+        hls!.currentLevel = hls!.levels.length - 1;
         video.play().catch(() => {});
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {

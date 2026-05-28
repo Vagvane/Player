@@ -8,10 +8,9 @@
  */
 
 import prisma from '../config/database'
-//import { getSignedUrlForFile } from './r2.service'
+import { getPublicUrl } from '../config/r2.config'
 import { logger } from '../utils/logger'
 import { Video, VideoStatus } from '@prisma/client'
-//import { videoConfig } from '../config/app.config'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,15 +33,75 @@ interface CreateVideoData {
 }
 
 /**
- * A Video record augmented with temporary signed streaming URLs.
- * `hlsUrl` and `thumbnailVttUrl` are only present when the video is READY
- * and the corresponding R2 paths are set.
+ * A Video record augmented with delivery URLs.
+ *
+ * In CDN mode  (`R2_PUBLIC_URL` set): all three URL fields are populated with
+ * direct Cloudflare CDN URLs — no bytes flow through Express.
+ *
+ * In proxy mode (`R2_PUBLIC_URL` absent): `hlsUrl` and `thumbnailVttUrl` are
+ * set to backend proxy paths for the single-video endpoint; `spriteUrl` is
+ * left `undefined` so the frontend falls back to constructing it from `apiUrl`.
  */
 export interface VideoWithUrls extends Video {
-  /** Pre-signed HLS master playlist URL (valid for `videoConfig.signedUrlExpiry` seconds) */
+  /** HLS master playlist URL — CDN URL or backend proxy URL */
   hlsUrl?: string
-  /** Pre-signed thumbnail VTT sprite URL */
+  /** WebVTT thumbnail sprite index URL */
   thumbnailVttUrl?: string
+  /**
+   * Sprite sheet image URL.
+   * Populated in CDN mode only; the frontend constructs this in proxy mode
+   * from its own `VITE_API_URL` so it does not need BACKEND_URL on the server.
+   */
+  spriteUrl?: string
+}
+
+// ---------------------------------------------------------------------------
+// URL helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build delivery URLs for a single video record.
+ *
+ * CDN mode  (`R2_PUBLIC_URL` set in the environment):
+ *   Returns direct Cloudflare CDN URLs.  Zero video bytes flow through Express.
+ *
+ * Proxy mode (`R2_PUBLIC_URL` absent — local dev default):
+ *   Returns backend proxy URLs for `hlsUrl` / `thumbnailVttUrl`.
+ *   `spriteUrl` is left `undefined`; the frontend constructs it from
+ *   `VITE_API_URL` so the server never needs `BACKEND_URL` for that asset.
+ *
+ * @param video - A fully-loaded Prisma Video record
+ * @returns Partial `VideoWithUrls` containing only the URL fields
+ */
+function buildVideoUrls(video: Video): Pick<VideoWithUrls, 'hlsUrl' | 'thumbnailVttUrl' | 'spriteUrl'> {
+  const useCDN = !!process.env.R2_PUBLIC_URL
+  const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001'
+
+  let hlsUrl: string | undefined
+  let thumbnailVttUrl: string | undefined
+  let spriteUrl: string | undefined
+
+  if (video.status === VideoStatus.READY) {
+    if (video.hlsPath) {
+      hlsUrl = useCDN
+        ? getPublicUrl(video.hlsPath)
+        : `${BACKEND_URL}/api/v1/videos/${video.id}/hls/master.m3u8`
+    }
+
+    if (video.thumbnailVttPath) {
+      thumbnailVttUrl = useCDN
+        ? getPublicUrl(video.thumbnailVttPath)
+        : `${BACKEND_URL}/api/v1/videos/${video.id}/hls/thumbnails.vtt`
+    }
+
+    // spriteUrl is only attached in CDN mode — in proxy mode the frontend
+    // constructs it from VITE_API_URL so BACKEND_URL never needs to match.
+    if (useCDN && video.spritePath) {
+      spriteUrl = getPublicUrl(video.spritePath)
+    }
+  }
+
+  return { hlsUrl, thumbnailVttUrl, spriteUrl }
 }
 
 // ---------------------------------------------------------------------------
@@ -170,21 +229,8 @@ export async function getVideoById(id: string): Promise<VideoWithUrls | null> {
       return null
     }
 
-    // Build signed URLs only when paths are available
-    let hlsUrl: string | undefined
-    let thumbnailVttUrl: string | undefined
-
-    const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001'
-
-if (video.status === VideoStatus.READY && video.hlsPath) {
-  hlsUrl = `${BACKEND_URL}/api/v1/videos/${video.id}/hls/master.m3u8`
-}
-
-if (video.thumbnailVttPath) {
-  thumbnailVttUrl = `${BACKEND_URL}/api/v1/videos/${video.id}/hls/thumbnails.vtt`
-}
-
-    return { ...video, hlsUrl, thumbnailVttUrl }
+    const urls = buildVideoUrls(video)
+    return { ...video, ...urls }
   } catch (error) {
     logger.error('Failed to get video', error)
     throw error
@@ -211,13 +257,13 @@ export async function getAllVideos(
   page: number = 1,
   limit: number = 20,
   status?: VideoStatus
-): Promise<{ videos: Video[]; total: number; pages: number }> {
+): Promise<{ videos: VideoWithUrls[]; total: number; pages: number }> {
   try {
     const skip = (page - 1) * limit
     const where = status ? { status } : {}
 
     // Run count and data fetch in parallel for better performance
-    const [videos, total] = await Promise.all([
+    const [rawVideos, total] = await Promise.all([
       prisma.video.findMany({
         where,
         skip,
@@ -228,6 +274,15 @@ export async function getAllVideos(
     ])
 
     const pages = Math.ceil(total / limit)
+
+    // Attach CDN/proxy delivery URLs so the frontend never needs to
+    // construct them manually.  In CDN mode all three URL fields are
+    // populated; in proxy mode only hlsUrl/thumbnailVttUrl are set
+    // (spriteUrl is omitted and the frontend falls back to its own apiUrl).
+    const videos: VideoWithUrls[] = rawVideos.map((v) => ({
+      ...v,
+      ...buildVideoUrls(v),
+    }))
 
     return { videos, total, pages }
   } catch (error) {

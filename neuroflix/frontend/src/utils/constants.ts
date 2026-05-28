@@ -47,17 +47,31 @@ export const PLAYER_CONFIG = {
 /**
  * hls.js constructor options applied to every player instance.
  *
- * - `startLevel: -1` lets ABR pick the initial rendition.
+ * - `startLevel: 2` starts at 480p so the first segment loads quickly.
+ *   ABR switches to higher quality within a few seconds once bandwidth is
+ *   measured. Using -1 (auto) causes hls.js to pick 1080p on fast local
+ *   connections — but our proxy mode adds R2 round-trip latency that ABR
+ *   doesn't account for, producing a long buffering spinner.
+ * - `abrEwmaDefaultEstimate` seeds the bandwidth estimator at 1 Mbps so
+ *   ABR isn't artificially conservative on the first quality switch.
+ * - `startFragPrefetch` begins loading the first segment in parallel with
+ *   the video element attach — shaves ~200-400 ms off time-to-first-frame.
  * - `enableWorker` offloads MSE appends to a worker thread.
  * - `lowLatencyMode` is off — we serve VOD, not live.
  * - `backBufferLength` keeps a short rewind window without retaining
  *   the entire watched range in memory.
+ * - `maxBufferLength` / `maxMaxBufferLength` cap forward buffering so RAM
+ *   stays bounded on long sessions.
  */
 export const HLS_CONFIG = {
-  startLevel: -1,
+  startLevel: 2,
+  abrEwmaDefaultEstimate: 1_000_000,
+  startFragPrefetch: true,
   enableWorker: true,
   lowLatencyMode: false,
   backBufferLength: 10,
+  maxBufferLength: 30,
+  maxMaxBufferLength: 60,
 } as const;
 
 /**

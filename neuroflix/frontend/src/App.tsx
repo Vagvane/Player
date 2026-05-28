@@ -41,7 +41,7 @@ const App: FC = () => {
 
   return (
     <ErrorBoundary>
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <div className="flex flex-col min-h-screen bg-gray-900">
           <Header />
 

@@ -112,7 +112,9 @@ BACKEND_API_URL=http://localhost:3001/api/v1
 VIDEO_PROCESSOR_API_KEY=any-random-secret-string
 ```
 
-### Frontend (`frontend/.env`)
+### Frontend (`frontend/.env.local`)
+
+Vite loads `.env.local` for local-only overrides that are not committed to git.
 
 ```env
 VITE_API_URL=http://localhost:3001/api/v1

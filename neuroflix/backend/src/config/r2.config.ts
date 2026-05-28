@@ -27,7 +27,7 @@
  * ```
  */
 
-import { S3Client, HeadBucketCommand } from '@aws-sdk/client-s3'
+import { S3Client, HeadBucketCommand, PutBucketCorsCommand } from '@aws-sdk/client-s3'
 import { logger } from '../utils/logger'
 
 // ---------------------------------------------------------------------------
@@ -169,6 +169,89 @@ export function getVideoPaths(videoId: string) {
     sprite: `videos/${videoId}/sprite.jpg`,
     /** Prefix for all HLS segment files */
     segments: `videos/${videoId}/`
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CORS configuration
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply CORS rules to the R2 bucket so that browser clients can fetch HLS
+ * segments, manifests, and thumbnail assets directly from the Cloudflare CDN
+ * (when `R2_PUBLIC_URL` is set) without being blocked by the same-origin policy.
+ *
+ * ## Why this is needed
+ * When CDN mode is active the frontend fetches files straight from
+ * `R2_PUBLIC_URL` (e.g. `https://pub-xxx.r2.dev`). Browsers enforce CORS on
+ * cross-origin XHR / fetch calls, so without an `Access-Control-Allow-Origin`
+ * header the request is blocked even though the file was served (status 200).
+ *
+ * ## What this does
+ * Calls `PutBucketCors` — the S3-compatible API Cloudflare R2 supports —
+ * to install a single CORS rule that allows GET and HEAD from the frontend
+ * origin(s). The operation is idempotent so it is safe to run on every startup.
+ *
+ * ## When to call it
+ * Only needed when `R2_PUBLIC_URL` is set (CDN mode). In proxy mode the backend
+ * adds CORS headers itself via the `cors` middleware and this function is skipped.
+ *
+ * @returns `true` on success, `false` on failure (non-fatal — server continues)
+ */
+export async function configureBucketCors(): Promise<boolean> {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
+
+  // Always include the configured frontend URL plus common local dev origins.
+  const allowedOrigins = Array.from(
+    new Set([
+      frontendUrl,
+      'http://localhost:5173',  // Vite default
+      'http://localhost:3000',  // alternative dev port
+    ]),
+  )
+
+  try {
+    await r2Client.send(
+      new PutBucketCorsCommand({
+        Bucket: r2Config.bucketName,
+        CORSConfiguration: {
+          CORSRules: [
+            {
+              /**
+               * Allow the frontend to read any HLS file (manifest, segment,
+               * VTT, sprite) directly from the CDN.
+               *
+               * AllowedMethods: GET for normal file fetches, HEAD for
+               *   hls.js range / pre-flight segment checks.
+               *
+               * AllowedHeaders: '*' lets hls.js send its custom headers
+               *   (e.g. `Range`) without a separate OPTIONS pre-flight failing.
+               *
+               * ExposeHeaders: surface Content-Length / ETag so the browser
+               *   can validate cache entries and hls.js can size its buffer.
+               *
+               * MaxAgeSeconds: 86400 (24 h) — caches the pre-flight result in
+               *   the browser so repeated segment fetches don't trigger extra
+               *   OPTIONS round-trips.
+               */
+              AllowedOrigins: allowedOrigins,
+              AllowedMethods: ['GET', 'HEAD'],
+              AllowedHeaders: ['*'],
+              ExposeHeaders: ['Content-Length', 'Content-Type', 'ETag', 'Accept-Ranges'],
+              MaxAgeSeconds: 86400,
+            },
+          ],
+        },
+      }),
+    )
+
+    logger.info(
+      `R2 CORS configured for origins: ${allowedOrigins.join(', ')}`,
+    )
+    return true
+  } catch (error) {
+    logger.error('Failed to configure R2 CORS rules', error)
+    return false
   }
 }
 

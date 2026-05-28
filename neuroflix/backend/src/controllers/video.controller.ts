@@ -5,7 +5,7 @@
  * and per-user playback progress persistence.
  */
 
-import { downloadFile, fileExists } from '../services/r2.service'
+import { streamFile, streamPipeline, fileExists } from '../services/r2.service'
 
 import { Request, Response } from 'express'
 import { VideoStatus } from '@prisma/client'
@@ -317,41 +317,124 @@ export async function reprocessVideo(req: Request, res: Response): Promise<void>
 }
 
 /**
- * Proxy an HLS file (playlist or segment) from R2.
+ * Returns `true` for errors that mean the client closed the connection before
+ * the stream finished.  hls.js routinely cancels fetches it no longer needs
+ * (quality switch, seek, player teardown) — these should never surface as 500s.
+ *
+ * Covers both the "client closed before headers flushed" case (res.headersSent
+ * is still false) and the "mid-body disconnect" case.
+ */
+function isClientAbort(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const msg   = error.message.toLowerCase()
+  const code  = (error as NodeJS.ErrnoException).code
+  return (
+    msg === 'premature close'              ||  // pipeline: writable closed early
+    msg.includes('premature close')        ||
+    code === 'ERR_STREAM_PREMATURE_CLOSE'  ||
+    code === 'ECONNRESET'                  ||  // TCP reset by peer
+    code === 'ECONNABORTED'                ||  // connection aborted
+    code === 'EPIPE'                           // broken pipe (write to closed socket)
+  )
+}
+
+/**
+ * Stream an HLS file (playlist or segment) from R2 to the client.
  * GET /api/videos/:id/hls/*
+ *
+ * @remarks
+ * This route is only called when the backend is running in proxy mode
+ * (R2_PUBLIC_URL is NOT set).  When R2_PUBLIC_URL is set, `getVideoById`
+ * returns direct Cloudflare CDN URLs and hls.js never calls this endpoint.
+ *
+ * Implementation uses a Node.js stream pipe — the file is never loaded
+ * into RAM as a Buffer.  Bytes flow:
+ *   R2 → (Node.js Readable pipe) → Express Response → browser
+ *
+ * Cache-Control is set to `public, max-age=86400, immutable` for `.ts`
+ * segments (content-addressed, never change) and `public, max-age=5` for
+ * `.m3u8` playlists (may be regenerated on reprocess).  If a CDN such as
+ * Cloudflare is in front of this Express server, segments are cached at the
+ * edge after the first request — so subsequent viewers never reach Express.
  */
 export async function streamHLSFile(req: Request, res: Response): Promise<void> {
+  const { id: videoId } = req.params
+  const filePath = (req.params as any)[0] as string
+
+  if (!filePath) {
+    throw ApiError.badRequest('Invalid HLS file path')
+  }
+
+  // Sanitise: strip any path traversal attempts and leading slashes
+  const safePath = filePath.replace(/\.\.\//g, '').replace(/^\/+/, '')
+  const r2Key = `videos/${videoId}/${safePath}`
+
+  const isSegment  = safePath.endsWith('.ts')
+  const isPlaylist = safePath.endsWith('.m3u8')
+  const isVtt      = safePath.endsWith('.vtt')
+  const isImage    = safePath.endsWith('.jpg') || safePath.endsWith('.jpeg')
+
+  const contentType = isPlaylist ? 'application/vnd.apple.mpegurl'
+    : isSegment      ? 'video/mp2t'
+    : isVtt          ? 'text/vtt'
+    : isImage        ? 'image/jpeg'
+    : 'application/octet-stream'
+
+  // Cache-Control strategy for VOD assets:
+  //  .ts segments    — content-addressed, never mutate → 24 h immutable
+  //  sprite.jpg      — generated once per video, never changes → 24 h immutable
+  //  thumbnails.vtt  — same as sprite → 24 h immutable
+  //  level playlists — VOD playlists are also static once processing is done → 1 h immutable
+  //  master.m3u8     — can be regenerated on reprocess → 30 s (short but avoids constant fetches)
+  const isMasterPlaylist = safePath === 'master.m3u8'
+  const cacheControl = isSegment || isImage || isVtt
+    ? 'public, max-age=86400, immutable'
+    : isPlaylist && !isMasterPlaylist
+    ? 'public, max-age=3600, immutable'
+    : isMasterPlaylist
+    ? 'public, max-age=30'
+    : 'public, max-age=86400, immutable'
+
   try {
-    const { id: videoId } = req.params
-    const filePath = (req.params as any)[0] as string
-
-    if (!filePath) {
-      throw ApiError.badRequest('Invalid HLS file path')
-    }
-
-    const safePath = filePath.replace(/\.\.\//g, '').replace(/^\/+/, '')
-    const r2Key = `videos/${videoId}/${safePath}`
-
-    const contentType = safePath.endsWith('.m3u8')
-      ? 'application/vnd.apple.mpegurl'
-      : safePath.endsWith('.ts')
-      ? 'video/mp2t'
-      : safePath.endsWith('.vtt')
-      ? 'text/vtt'
-      : safePath.endsWith('.jpg') || safePath.endsWith('.jpeg')
-      ? 'image/jpeg'
-      : 'application/octet-stream'
-
-    const buffer = await downloadFile(r2Key)
+    const { body, contentLength } = await streamFile(r2Key)
 
     res.set('Content-Type', contentType)
-    res.set('Cache-Control', 'private, max-age=60')
-    res.send(buffer)
+    res.set('Cache-Control', cacheControl)
+    // Forward Content-Length so the browser can show a download-progress bar
+    // and hls.js can pre-allocate its internal buffer correctly.
+    if (contentLength !== undefined) {
+      res.set('Content-Length', String(contentLength))
+    }
+
+    // Pipe the R2 stream directly into the HTTP response.
+    // `streamPipeline` (promisified stream.pipeline) propagates errors and
+    // calls res.destroy() on failure — safe to await inside asyncHandler.
+    await streamPipeline(body, res)
   } catch (error: any) {
-    if (error.message?.includes('R2 download failed')) {
+    // ── Client disconnected ───────────────────────────────────────────────
+    // hls.js regularly cancels requests it no longer needs: quality switch,
+    // seek that jumps past a segment, player teardown, etc.  Node's pipeline
+    // surfaces those as "Premature close" / ECONNRESET / EPIPE.
+    //
+    // This can happen BEFORE headers are flushed (res.set() only queues
+    // headers; the first write flushes them) OR mid-transfer.  Either way
+    // it is not a server error — swallow it and release the request quietly.
+    if (isClientAbort(error)) {
+      logger.debug(`HLS stream cancelled by client: ${r2Key}`)
+      return
+    }
+
+    // If headers are already sent we cannot write an error response —
+    // log the interruption and let the connection close naturally.
+    if (res.headersSent) {
+      logger.error(`HLS stream interrupted mid-transfer: ${r2Key}`, error)
+      return
+    }
+
+    if (error.message?.includes('R2 stream failed')) {
       throw ApiError.notFound('HLS file not found')
     }
-    logger.error('Failed to proxy HLS file', error)
+    logger.error('Failed to stream HLS file', error)
     throw error
   }
 }

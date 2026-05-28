@@ -1,0 +1,21 @@
+{
+  // Use the TypeScript version installed in the project's node_modules
+  // instead of VS Code's bundled TypeScript (6.x), which emits spurious
+  // deprecation warnings not applicable to the project's TypeScript (5.x).
+  //
+  // Path is relative to this workspace root (Player/Player/).
+  "typescript.tsdk": "neuroflix/frontend/node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "eslint.workingDirectories": [
+    { "directory": "neuroflix/frontend", "changeProcessCWD": true }
+  ]
+}

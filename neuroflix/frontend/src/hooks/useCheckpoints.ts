@@ -13,6 +13,12 @@ export interface UseCheckpointsOptions {
    * so the viewer can retry.
    */
   onAnswerSubmitted?: (checkpointId: string, isCorrect: boolean) => void;
+  /**
+   * When true, skip fetching prior answer history from the backend.
+   * All checkpoints will fire fresh regardless of prior sessions.
+   * Use when the viewer is starting from the beginning after a completed watch.
+   */
+  skipHistory?: boolean;
 }
 
 export interface UseCheckpointsResult {
@@ -69,6 +75,7 @@ function useCheckpoints({
   currentTime,
   videoRef,
   onAnswerSubmitted,
+  skipHistory = false,
 }: UseCheckpointsOptions): UseCheckpointsResult {
   const [activeCheckpoint, setActiveCheckpoint] = useState<Checkpoint | null>(null);
   const [completedCheckpointIds, setCompletedCheckpointIds] = useState<Set<string>>(
@@ -78,6 +85,11 @@ function useCheckpoints({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [wrongAnswer, setWrongAnswer] = useState<boolean>(false);
+  // Guard: don't trigger checkpoints until the prior-session history
+  // has loaded from the backend. Without this, a viewer who resumes
+  // mid-video immediately hits a checkpoint they already answered because
+  // the video seeks to the resume point before the history fetch resolves.
+  const [historyLoaded, setHistoryLoaded] = useState<boolean>(false);
 
   // Keep the latest callback in a ref so the trigger effect doesn't
   // re-run every time the parent passes a new closure.
@@ -85,6 +97,62 @@ function useCheckpoints({
   useEffect(() => {
     onAnswerSubmittedRef.current = onAnswerSubmitted;
   }, [onAnswerSubmitted]);
+
+  // ── Pre-populate already-answered checkpoints ──────────────────────────
+  // On mount (and whenever the videoId changes), fetch the viewer's answer
+  // history from the backend and seed `completedCheckpointIds` with any
+  // checkpoint they already answered CORRECTLY in a prior session.
+  //
+  // This means: if a viewer watched 70% of a video last week, answered 3
+  // checkpoints correctly, and returns today, they won't be re-asked those
+  // 3 questions — only the checkpoints that fall after their resume point
+  // (and haven't been answered) will pause playback.
+  //
+  // Fails silently: if the user is unauthenticated, the backend returns 401
+  // and we simply start the session with an empty completion set (original
+  // behaviour).
+  const videoId = checkpoints[0]?.videoId ?? null;
+
+  useEffect(() => {
+    // Reset history guard whenever the video changes.
+    setHistoryLoaded(false);
+
+    if (!videoId || skipHistory) {
+      setHistoryLoaded(true); // nothing to load, or fresh-watch requested
+      return;
+    }
+
+    let cancelled = false;
+
+    checkpointService.getCheckpointAnswers(videoId)
+      .then((answers) => {
+        if (cancelled) return;
+        // Only count checkpoints the viewer answered correctly — a wrong
+        // answer on a prior visit should still require a correct answer.
+        const correctIds = new Set(
+          answers
+            .filter((a) => a.isCorrect)
+            .map((a) => a.checkpointId),
+        );
+        if (correctIds.size > 0) {
+          setCompletedCheckpointIds((prev) => {
+            const next = new Set(prev);
+            for (const id of correctIds) next.add(id);
+            return next;
+          });
+        }
+      })
+      .catch(() => {
+        // Unauthenticated or network failure — start with empty set.
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [videoId, skipHistory]);
 
   // Mirror the active checkpoint into a ref so the trigger effect can
   // read it without subscribing — avoids the loop where firing the
@@ -95,6 +163,10 @@ function useCheckpoints({
   }, [activeCheckpoint]);
 
   useEffect(() => {
+    // Don't fire any checkpoints until we know which ones the viewer
+    // already answered — prevents re-asking already-completed questions
+    // when the video seeks to the resume position on load.
+    if (!historyLoaded) return;
     if (activeCheckpointRef.current) return;
     if (!checkpoints || checkpoints.length === 0) return;
 
@@ -110,7 +182,7 @@ function useCheckpoints({
       setWrongAnswer(false);
       break;
     }
-  }, [currentTime, checkpoints, completedCheckpointIds, videoRef]);
+  }, [currentTime, checkpoints, completedCheckpointIds, historyLoaded, videoRef]);
 
   const handleAnswer = useCallback(
     async (answerIndex: number): Promise<void> => {
@@ -176,6 +248,7 @@ function useCheckpoints({
     setSubmitError(null);
     setIsSubmitting(false);
     setWrongAnswer(false);
+    setHistoryLoaded(false);
   }, []);
 
   return {

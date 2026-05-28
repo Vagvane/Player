@@ -99,7 +99,7 @@ export async function processVideo(jobData: VideoJobData): Promise<ProcessingRes
       hlsPath: uploadPaths.hlsPath,
       thumbnailVttPath: uploadPaths.thumbnailVttPath,
       spritePath: uploadPaths.spritePath,
-       duration: transcodeResult.duration
+      duration: transcodeResult.duration
     })
 
     // ── Cleanup ───────────────────────────────────────────────────────

@@ -77,15 +77,25 @@ const checkpointService = {
   /**
    * Fetch every answer the current viewer has recorded for `videoId`.
    * Populates the local cache so subsequent {@link submitAnswer} calls
-   * for already-answered checkpoints short-circuit. The UI can use
-   * the returned list to mark which checkpoints to skip or show as
-   * completed.
+   * for already-answered checkpoints short-circuit.  The hook uses the
+   * returned list to pre-populate the completed-checkpoint set so the
+   * viewer is never re-asked a question they already answered correctly
+   * in a previous session.
+   *
+   * Fails silently when the user is unauthenticated — the caller should
+   * catch and ignore the error (start the session with an empty set).
    */
   async getCheckpointAnswers(videoId: string): Promise<CheckpointAnswer[]> {
-    const answers = (await apiClient.get(
-      `/checkpoints/video/${encodeURIComponent(videoId)}/answers`,
-    )) as unknown as CheckpointAnswer[];
+    // Route: GET /api/v1/checkpoints/user/:videoId
+    // Response shape: { success, data: { answers: CheckpointAnswer[], stats: {...} } }
+    const response = (await apiClient.get(
+      `/checkpoints/user/${encodeURIComponent(videoId)}`,
+    )) as unknown as {
+      success: boolean;
+      data: { answers: CheckpointAnswer[]; stats: unknown };
+    };
 
+    const answers = response?.data?.answers ?? [];
     for (const a of answers) indexAnswer(a);
     return answers;
   },

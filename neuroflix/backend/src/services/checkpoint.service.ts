@@ -35,6 +35,8 @@ interface CheckpointQuestion {
   options: string[]
   /** 0-based index of the correct option – NEVER sent to the client */
   correctAnswer: number
+  /** Optional explanation shown to the viewer after they answer correctly */
+  explanation?: string
 }
 
 /**

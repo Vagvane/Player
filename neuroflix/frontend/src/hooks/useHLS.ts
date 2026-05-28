@@ -114,11 +114,24 @@ function useHLS({
         }
 
         switch (data.type) {
-          case Hls.ErrorTypes.NETWORK_ERROR:
-            // Manifest load or segment fetch failed — ask hls.js to retry.
-            setError(`Network error: ${data.details}`);
-            hls.startLoad();
+          case Hls.ErrorTypes.NETWORK_ERROR: {
+            // Manifest failures (CORS, 404 on .m3u8) are not retriable —
+            // startLoad() would just loop forever hitting the same block.
+            // Segment failures (transient drops) are safe to retry.
+            const isManifestError =
+              data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR ||
+              data.details === Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT ||
+              data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR;
+            if (isManifestError) {
+              setError(`Cannot load video: ${data.details}`);
+              hls.destroy();
+              hlsRef.current = null;
+            } else {
+              setError(`Network error: ${data.details}`);
+              hls.startLoad();
+            }
             break;
+          }
           case Hls.ErrorTypes.MEDIA_ERROR:
             // Corrupted segment or MSE append failure — flush and retry.
             setError(`Media error: ${data.details}`);

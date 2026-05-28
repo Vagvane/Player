@@ -19,8 +19,9 @@ A self-hosted video training platform with a Netflix-style player, HLS adaptive 
 - Responsive: desktop, tablet, and mobile
 
 ### Security
-- HLS segmented streaming — no downloadable MP4 URL
-- All video requests proxied through the backend (R2 never exposed to browser)
+- HLS segmented streaming — no downloadable MP4 URL is ever returned
+- Proxy mode (default): all video requests flow through the backend — R2 is never exposed to the browser
+- CDN mode (production): segments served from Cloudflare edge; R2 bucket is public, but only accessible as HLS fragments — no full-video URL exists
 - JWT authentication on every API route
 - Dynamic forensic watermark (user email + organization, shifts every 60 s)
 

@@ -20,8 +20,8 @@ const router = Router()
  * @route   POST /api/upload
  * @desc    Upload a video file to Cloudflare R2 and create a database record.
  *          The file is accepted as multipart/form-data under the field name "video".
- *          After upload the video enters a PENDING state; processing is queued
- *          separately by the video processor service (Part 4).
+ *          After upload the video enters an UPLOADING state; processing is queued
+ *          separately by the video processor service.
  * @access  Private (requires valid JWT Bearer token)
  * @headers Authorization: Bearer <token>
  * @body    multipart/form-data { video: File, title: string, description?: string }
@@ -38,7 +38,7 @@ router.post(
 /**
  * @route   GET /api/upload/status/:videoId
  * @desc    Poll the upload and processing status of a previously uploaded video.
- *          Returns the current VideoStatus (PENDING | PROCESSING | READY | FAILED)
+ *          Returns the current VideoStatus (UPLOADING | PROCESSING | READY | FAILED)
  *          along with the processed timestamp when available.
  * @access  Private (requires valid JWT Bearer token)
  * @param   videoId {string} - ID of the video to check status for

@@ -102,7 +102,7 @@ List all videos with status `READY`.
 {
   "success": true,
   "data": { "videos": [...], "total": 5, "pages": 1 },
-  "meta": { "page": 1, "limit": 20 }
+  "meta": { "page": 1, "limit": 20, "totalPages": 1, "totalItems": 5 }
 }
 ```
 
@@ -120,8 +120,8 @@ Get a single video with signed HLS URL and user progress. **Optionally authentic
       "id": "uuid",
       "title": "Intro to Streaming",
       "duration": 180,
-      "hlsUrl": "/api/v1/videos/uuid/hls/master.m3u8",
-      "thumbnailVttUrl": "/api/v1/videos/uuid/hls/thumbnails.vtt",
+      "hlsUrl": "http://localhost:3001/api/v1/videos/uuid/hls/master.m3u8",
+      "thumbnailVttUrl": "http://localhost:3001/api/v1/videos/uuid/hls/thumbnails.vtt",
       "status": "READY"
     },
     "progress": {
@@ -132,6 +132,8 @@ Get a single video with signed HLS URL and user progress. **Optionally authentic
   }
 }
 ```
+
+`hlsUrl` is a backend proxy URL in development. When `R2_PUBLIC_URL` is configured (production CDN mode), it becomes a direct Cloudflare CDN URL (`https://pub-xxx.r2.dev/videos/...`).
 
 `progress` is `null` if the user has not watched the video yet.
 
@@ -222,12 +224,12 @@ Upload a video file for transcoding. **Protected.**
 - `title` — video title (required)
 - `description` — optional
 
-**Response 202**
+**Response 201**
 ```json
 {
   "success": true,
-  "message": "Video uploaded and queued for processing",
-  "data": { "video": { "id": "uuid", "status": "PROCESSING" } }
+  "message": "Video uploaded successfully. Processing will begin shortly.",
+  "data": { "video": { "id": "uuid", "status": "UPLOADING", "title": "..." } }
 }
 ```
 
@@ -249,14 +251,14 @@ Get all checkpoint questions for a video. **Protected.**
         "videoId": "uuid",
         "timestamp": 30,
         "question": "What is HLS?",
-        "options": ["HTTP Live Streaming", "High Level Streaming", "..."],
-        "correctAnswer": 0,
-        "explanation": "HLS stands for HTTP Live Streaming..."
+        "options": ["HTTP Live Streaming", "High Level Streaming", "..."]
       }
     ]
   }
 }
 ```
+
+`correctAnswer` is intentionally omitted from this response — it is only revealed after a submission via `POST /checkpoints/answer`.
 
 ---
 
@@ -277,15 +279,17 @@ Submit an answer to a checkpoint question. **Protected.**
 ```json
 {
   "success": true,
+  "message": "Correct answer!",
   "data": {
-    "correct": true,
+    "isCorrect": true,
     "correctAnswer": 0,
-    "explanation": "HLS stands for HTTP Live Streaming..."
+    "userAnswer": 0,
+    "savedAnswer": { "id": "uuid", "isCorrect": true, "answer": 0, ... }
   }
 }
 ```
 
-Returns `"correct": false` with `"correctAnswer"` if the answer is wrong — the frontend keeps the overlay open for retry.
+`message` is `"Incorrect answer"` and `isCorrect` is `false` when the answer is wrong — the frontend keeps the overlay open for retry.
 
 ---
 
