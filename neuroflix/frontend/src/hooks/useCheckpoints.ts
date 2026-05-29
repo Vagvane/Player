@@ -30,6 +30,16 @@ export interface UseCheckpointsResult {
   handleAnswer: (answerIndex: number) => Promise<void>;
   resetCheckpoints: () => void;
   completedCount: number;
+  /** IDs of checkpoints the viewer has already answered correctly this session. */
+  completedCheckpointIds: ReadonlySet<string>;
+  /**
+   * Immediately pause the video and surface `checkpoint` as the active
+   * overlay. Used by the seek-guard to block forward scrubs past unanswered
+   * checkpoints and force the viewer to answer before continuing.
+   */
+  showCheckpoint: (checkpoint: Checkpoint) => void;
+  /** `true` once prior-session history has been fetched (or skipped). */
+  historyLoaded: boolean;
 }
 
 /**
@@ -251,6 +261,15 @@ function useCheckpoints({
     setHistoryLoaded(false);
   }, []);
 
+  const showCheckpoint = useCallback((checkpoint: Checkpoint) => {
+    if (activeCheckpointRef.current) return;
+    videoRef.current?.pause();
+    setActiveCheckpoint(checkpoint);
+    setAnswerStartTime(Date.now());
+    setSubmitError(null);
+    setWrongAnswer(false);
+  }, [videoRef]);
+
   return {
     activeCheckpoint,
     isSubmitting,
@@ -259,6 +278,9 @@ function useCheckpoints({
     handleAnswer,
     resetCheckpoints,
     completedCount: completedCheckpointIds.size,
+    completedCheckpointIds,
+    showCheckpoint,
+    historyLoaded,
   };
 }
 

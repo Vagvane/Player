@@ -10,12 +10,14 @@ import VideoElement, { type VideoElementRef } from './VideoElement';
 import PlayerControls from './PlayerControls';
 import Timeline from './Timeline';
 import QuestionOverlay from '../Checkpoint/QuestionOverlay';
+import SeekGuardDialog from '../Checkpoint/SeekGuardDialog';
 import DynamicWatermark from '../Watermark/DynamicWatermark';
 import useCheckpoints from '../../hooks/useCheckpoints';
 import useAutoHideControls from '../../hooks/useAutoHideControls';
 import useKeyboardShortcuts from '../../hooks/useKeyboardShortcuts';
 import { usePlayerStore } from '../../store/playerStore';
 import type { VideoMetadata } from '../../types/video';
+import type { Checkpoint } from '../../types/checkpoint';
 import type { HLSLevel } from '../../hooks/useHLS';
 
 /**
@@ -119,6 +121,15 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
   const [overlayCheckpoint, setOverlayCheckpoint] = useState<typeof activeCheckpoint>(null);
   const [overlayVisible, setOverlayVisible] = useState(false);
 
+  // Seek guard dialog — populated when the viewer tries to scrub forward past
+  // unanswered checkpoints. Null means the dialog is not shown.
+  const [seekGuardState, setSeekGuardState] = useState<{
+    targetTime: number;
+    unanswered: Checkpoint[];
+    answered: Checkpoint[];
+    wasPlaying: boolean;
+  } | null>(null);
+
     // Once the VideoElement mounts and attaches its imperative handle,
   // forward the raw <video> into htmlVideoRef so the dependent hooks
   // and PlayerControls leaves see a real element.
@@ -146,7 +157,16 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
     !videoData.resumeTime ||
     (videoData.duration > 0 && videoData.resumeTime >= videoData.duration - 5);
 
-  const { activeCheckpoint, handleAnswer, isSubmitting: checkpointSubmitting, submitError, wrongAnswer } = useCheckpoints({
+  const {
+    activeCheckpoint,
+    handleAnswer,
+    isSubmitting: checkpointSubmitting,
+    submitError,
+    wrongAnswer,
+    completedCheckpointIds,
+    showCheckpoint,
+    historyLoaded,
+  } = useCheckpoints({
     checkpoints,
     currentTime,
     videoRef: htmlVideoRef,
@@ -168,11 +188,72 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
 
   const { showControls } = useAutoHideControls({ isPlaying });
 
+  /**
+   * Seek guard: backward seeks are always allowed. Forward seeks that pass
+   * unanswered checkpoints surface a dialog that tells the viewer how many
+   * checkpoints they're skipping and lets them choose whether to stay at their
+   * current position or work through the checkpoints first.
+   */
+  const guardedSeek = useCallback(
+    (targetTime: number) => {
+      if (targetTime <= currentTime) {
+        videoElementRef.current?.seek(targetTime);
+        return;
+      }
+
+      const allInRange = checkpoints
+        .filter((cp) => cp.timestamp > currentTime && cp.timestamp <= targetTime)
+        .sort((a, b) => a.timestamp - b.timestamp);
+
+      const unanswered = allInRange.filter((cp) => !completedCheckpointIds.has(cp.id));
+      const answered   = allInRange.filter((cp) =>  completedCheckpointIds.has(cp.id));
+
+      if (unanswered.length === 0) {
+        videoElementRef.current?.seek(targetTime);
+        return;
+      }
+
+      // Pause video and surface the dialog — the viewer decides what to do.
+      const wasPlaying = usePlayerStore.getState().isPlaying;
+      videoElementRef.current?.pause();
+      setSeekGuardState({ targetTime, unanswered, answered, wasPlaying });
+    },
+    [checkpoints, completedCheckpointIds, currentTime],
+  );
+
+  // Guards against double-enforcement: onLoadedMetadata fires the seek, then
+  // the historyLoaded effect fires too — the ref ensures only one wins.
+  const resumeEnforcedRef = useRef(false);
+
+  // On a resume (not a fresh watch), find the earliest checkpoint the viewer
+  // skipped and force it before they can continue. Gates on historyLoaded so
+  // we always have the correct completed set before deciding what to show.
+  const doEnforcement = useCallback(() => {
+    if (resumeEnforcedRef.current || isFreshWatch || !historyLoaded) return;
+    resumeEnforcedRef.current = true;
+    const resumeTime = videoData.resumeTime ?? 0;
+    if (resumeTime <= 0) return;
+    const firstSkipped = checkpoints
+      .filter((cp) => !completedCheckpointIds.has(cp.id) && cp.timestamp < resumeTime)
+      .sort((a, b) => a.timestamp - b.timestamp)[0];
+    if (firstSkipped) {
+      videoElementRef.current?.seek(Math.max(0, firstSkipped.timestamp - 0.5));
+      showCheckpoint(firstSkipped);
+    }
+  }, [isFreshWatch, historyLoaded, checkpoints, completedCheckpointIds, videoData.resumeTime, showCheckpoint]);
+
+  // Handles the case where history resolves after onLoadedMetadata has already
+  // seeked to the resume position. The ref prevents double-enforcement.
+  useEffect(() => {
+    if (!historyLoaded) return;
+    doEnforcement();
+  }, [historyLoaded, doEnforcement]);
+
   // The keyboard layer is the single owner of global shortcuts —
   // every leaf calls useVideoControls with shortcuts disabled to
   // avoid duplicate handlers. Suspended while a checkpoint is up so
   // Space/Arrow keys don't seek behind the modal.
-  useKeyboardShortcuts(htmlVideoRef, !activeCheckpoint);
+  useKeyboardShortcuts(htmlVideoRef, !activeCheckpoint && !seekGuardState, guardedSeek);
 
   const onLoadedMetadata = useCallback(
     (dur: number) => {
@@ -184,8 +265,11 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
       if (resumeTime > 0 && !isNearEnd) {
         videoElementRef.current?.seek(resumeTime);
       }
+      // Attempt enforcement immediately; if history hasn't resolved yet,
+      // doEnforcement gates on historyLoaded and the useEffect picks it up.
+      doEnforcement();
     },
-    [setDuration, videoData.resumeTime],
+    [setDuration, videoData.resumeTime, doEnforcement],
   );
 
   const onTimeUpdate = useCallback(
@@ -221,9 +305,25 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
     void videoElementRef.current?.play();
   }, []);
 
-  const handleSeek = useCallback((time: number) => {
-    videoElementRef.current?.seek(time);
-  }, []);
+  // Viewer chose to stay at their current position — dismiss the dialog and
+  // resume playback if it was running before the seek was attempted.
+  const handleSeekGuardContinue = useCallback(() => {
+    const wasPlaying = seekGuardState?.wasPlaying ?? false;
+    setSeekGuardState(null);
+    if (wasPlaying) {
+      void videoElementRef.current?.play();
+    }
+  }, [seekGuardState]);
+
+  // Viewer agreed to answer the first unanswered checkpoint before skipping.
+  // Seek to just before it and surface the question overlay.
+  const handleSeekGuardAnswer = useCallback(() => {
+    if (!seekGuardState) return;
+    const first = seekGuardState.unanswered[0];
+    setSeekGuardState(null);
+    videoElementRef.current?.seek(Math.max(0, first.timestamp - 0.5));
+    showCheckpoint(first);
+  }, [seekGuardState, showCheckpoint]);
 
   /**
    * Toggle play/pause when the user clicks the container chrome —
@@ -233,7 +333,7 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
    */
   const handleContainerClick = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
-      if (activeCheckpoint) return;
+      if (activeCheckpoint || seekGuardState) return;
       const target = event.target as Node;
       const isContainerHit =
         target === containerRef.current ||
@@ -246,7 +346,7 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
         void videoElementRef.current?.play();
       }
     },
-    [activeCheckpoint, isPlaying],
+    [activeCheckpoint, seekGuardState, isPlaying],
   );
 
   return (
@@ -280,7 +380,7 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
           bg-gradient-to-b from-black via-black/50 to-transparent
           px-4 pt-4 pb-16
           transition-opacity duration-300
-          ${showControls && !activeCheckpoint ? 'opacity-100' : 'opacity-0 pointer-events-none'}
+          ${showControls && !activeCheckpoint && !seekGuardState ? 'opacity-100' : 'opacity-0 pointer-events-none'}
         `}
       >
         <div className="flex items-center gap-3">
@@ -317,7 +417,7 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
           flex items-center justify-center
           pointer-events-none
           transition-opacity duration-300
-          ${!isPlaying && !activeCheckpoint && !isBuffering ? 'opacity-100' : 'opacity-0'}
+          ${!isPlaying && !activeCheckpoint && !isBuffering && !seekGuardState ? 'opacity-100' : 'opacity-0'}
         `}
       >
         <div
@@ -380,13 +480,13 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
         bufferedRanges={bufferedRanges}
         checkpoints={checkpoints}
         thumbnailVttUrl={thumbnailVttUrl}
-        show={showControls && !activeCheckpoint}
-        onSeek={handleSeek}
+        show={showControls && !activeCheckpoint && !seekGuardState}
+        onSeek={guardedSeek}
       />
 
       {/* Layer 30 — bottom control bar. Same hiding rule as the timeline. */}
       <PlayerControls
-        show={showControls && !activeCheckpoint}
+        show={showControls && !activeCheckpoint && !seekGuardState}
         videoRef={htmlVideoRef}
         containerRef={containerRef}
         qualityLevels={qualityLevels}
@@ -404,6 +504,19 @@ const VideoPlayer: FC<VideoPlayerProps> = ({
           submitError={submitError}
           wrongAnswer={wrongAnswer}
           visible={overlayVisible}
+        />
+      )}
+
+      {/* Layer 50 — seek guard dialog. Sits above everything including the
+          checkpoint overlay (though both should never be active together). */}
+      {seekGuardState && (
+        <SeekGuardDialog
+          targetTime={seekGuardState.targetTime}
+          unansweredCheckpoints={seekGuardState.unanswered}
+          answeredCheckpoints={seekGuardState.answered}
+          onContinueWatching={handleSeekGuardContinue}
+          onAnswerCheckpoints={handleSeekGuardAnswer}
+          visible={true}
         />
       )}
     </div>

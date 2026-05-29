@@ -96,5 +96,63 @@
         "correctAnswer": 1
       }
     ]
+  },
+  {
+    "videoId": "42e93c89-0220-4776-8df1-a2454ecdbaac",
+    "checkpoints": [
+      {
+        "id": "cp-7",
+        "timestamp": 4.6,
+        "question": "What is the main advantage of HLS streaming?",
+        "options": [
+          "Better video quality",
+          "Adaptive bitrate streaming",
+          "Smaller file size",
+          "Faster uploads"
+        ],
+        "correctAnswer": 1
+      },
+      {
+        "id": "cp-8",
+        "timestamp": 2.2,
+        "question": "What is the main advantage of HLS streaming?",
+        "options": [
+          "Better video quality",
+          "Adaptive bitrate streaming",
+          "Smaller file size",
+          "Faster uploads"
+        ],
+        "correctAnswer": 1
+      }
+    ]
+  },
+  {
+    "videoId": "0b7b6032-d5fa-4df4-8e13-e777b57c97af",
+    "checkpoints": [
+      {
+        "id": "cp-9",
+        "timestamp": 2.6,
+        "question": "What is the main advantage of HLS streaming?",
+        "options": [
+          "Better video quality",
+          "Adaptive bitrate streaming",
+          "Smaller file size",
+          "Faster uploads"
+        ],
+        "correctAnswer": 1
+      },
+      {
+        "id": "cp-10",
+        "timestamp": 6.2,
+        "question": "What is the main advantage of HLS streaming?",
+        "options": [
+          "Better video quality",
+          "Adaptive bitrate streaming",
+          "Smaller file size",
+          "Faster uploads"
+        ],
+        "correctAnswer": 1
+      }
+    ]
   }
 ]

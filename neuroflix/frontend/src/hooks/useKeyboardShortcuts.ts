@@ -78,9 +78,16 @@ const PLAYER_KEYS = new Set<string>([
  * useKeyboardShortcuts(videoRef, !modalOpen);
  * ```
  */
+/**
+ * When provided, forward-seek keyboard actions (→, L, 0–9) are routed
+ * through this callback instead of the raw `seek` from useVideoControls.
+ * Use this to wire in the checkpoint seek-guard so keyboard scrubbing
+ * obeys the same forward-seek restrictions as the timeline.
+ */
 function useKeyboardShortcuts(
   videoRef: RefObject<HTMLVideoElement>,
-  enabled: boolean = true
+  enabled: boolean = true,
+  onSeek?: (time: number) => void
 ): void {
   const {
     togglePlay,
@@ -134,7 +141,7 @@ function useKeyboardShortcuts(
           seek(currentTime - SEEK_STEP_SHORT);
           break;
         case 'ArrowRight':
-          seek(currentTime + SEEK_STEP_SHORT);
+          (onSeek ?? seek)(currentTime + SEEK_STEP_SHORT);
           break;
         case 'ArrowUp':
           setVolumeLevel(volume + VOLUME_STEP);
@@ -156,7 +163,7 @@ function useKeyboardShortcuts(
           break;
         case 'l':
         case 'L':
-          seek(currentTime + SEEK_STEP_LONG);
+          (onSeek ?? seek)(currentTime + SEEK_STEP_LONG);
           break;
         case '0':
         case '1':
@@ -170,7 +177,7 @@ function useKeyboardShortcuts(
         case '9': {
           if (!Number.isFinite(duration) || duration <= 0) break;
           const fraction = Number.parseInt(event.key, 10) / 10;
-          seek(duration * fraction);
+          (onSeek ?? seek)(duration * fraction);
           break;
         }
         case '<':
@@ -209,6 +216,7 @@ function useKeyboardShortcuts(
     };
   }, [
     enabled,
+    onSeek,
     togglePlay,
     seek,
     setVolumeLevel,
